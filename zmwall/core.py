@@ -261,42 +261,9 @@ class PlayerManager:
         for player in self.players.values():
             player.process.terminate()
 
-    @staticmethod
-    def place_window(process: subprocess.Popen, x: int, y: int, width: int, height: int, env: dict[str, str]) -> None:
-        """Enforce the X11 rectangle while mpv and the window manager finish startup."""
-        deadline = time.monotonic() + 5
-        window_id: str | None = None
-        while process.poll() is None and time.monotonic() < deadline:
-            try:
-                if window_id is None:
-                    result = subprocess.run(
-                        ["xdotool", "search", "--onlyvisible", "--pid", str(process.pid)],
-                        text=True, capture_output=True, env=env, timeout=1,
-                    )
-                    window_ids = [item for item in result.stdout.splitlines() if item.isdigit()]
-                    if not window_ids:
-                        time.sleep(0.1)
-                        continue
-                    window_id = window_ids[-1]
-
-                # Resizing can cause Openbox to move a window back onto the first
-                # output. Move last and repeat while the RTSP video initializes,
-                # because mpv may update its X11 hints once the stream is decoded.
-                subprocess.run(
-                    ["xdotool", "windowsize", "--sync", window_id, str(width), str(height)],
-                    env=env, timeout=1,
-                )
-                subprocess.run(
-                    ["xdotool", "windowmove", "--sync", window_id, str(x), str(y)],
-                    env=env, timeout=1,
-                )
-            except (FileNotFoundError, subprocess.SubprocessError):
-                return
-            time.sleep(0.25)
-
-    def desired(self) -> dict[str, tuple[str, list[str], str, tuple[int, int, int, int]]]:
+    def desired(self) -> dict[str, tuple[str, list[str], str]]:
         outputs = {str(item["name"]): item for item in detect_outputs()}
-        desired: dict[str, tuple[str, list[str], str, tuple[int, int, int, int]]] = {}
+        desired: dict[str, tuple[str, list[str], str]] = {}
         resolution_cache: dict[str, str | None] = {}
         with connect(self.db_path) as db:
             screens = db.execute("SELECT * FROM screens WHERE enabled=1").fetchall()
@@ -344,9 +311,7 @@ class PlayerManager:
                             "--osd-margin-x=8", "--osd-margin-y=6",
                             "--osd-color=#DDFFFFFF", "--osd-outline-color=#B0000000",
                         ])
-                    desired[f"{screen['id']}:{tile['position']}"] = (
-                        signature, command, url, (x, y, width, height)
-                    )
+                    desired[f"{screen['id']}:{tile['position']}"] = (signature, command, url)
         return desired
 
     def reconcile(self) -> None:
@@ -361,18 +326,13 @@ class PlayerManager:
                 self.players.pop(key, None)
         env = dict(os.environ)
         env["DISPLAY"] = os.getenv("ZMWALL_DISPLAY", env.get("DISPLAY", ":0"))
-        for key, (signature, command, url, placement) in wanted.items():
+        for key, (signature, command, url) in wanted.items():
             if key not in self.players:
                 process = subprocess.Popen(command, env=env, stdin=subprocess.PIPE, text=True)
                 if process.stdin:
                     process.stdin.write(url + "\n")
                     process.stdin.close()
                 self.players[key] = Player(signature, process)
-                x, y, width, height = placement
-                threading.Thread(
-                    target=self.place_window,
-                    args=(process, x, y, width, height, env), daemon=True,
-                ).start()
 
     def run(self) -> None:
         while not self.stop_event.is_set():
