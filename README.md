@@ -1,6 +1,6 @@
 # ZM Wall
 
-Aktueller Entwicklungsstand: **0.2.0-beta.1**
+Aktueller Entwicklungsstand: **0.2.0-beta.2**
 
 ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigurierbare RTSP-Videowand für ZoneMinder. Jeder physische Monitor kann ein eigenes Raster und eine eigene Kamerabelegung erhalten. Die Streams werden direkt mit `mpv` wiedergegeben; die Weboberfläche dient nur zur Verwaltung.
 
@@ -16,6 +16,7 @@ ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigu
 - automatische Wiederherstellung abgebrochener oder vorübergehend nicht erreichbarer Streams
 - Drag-and-drop-Belegung mit einem Vorrat noch nicht zugeordneter RTSP-Kameras
 - mehrere Kameras je Grid-Position mit einstellbarem Wechselintervall
+- vorgepufferter Kamerawechsel ohne absichtlich erzeugte Schwarzphase
 - anpassbare RTSP-Port-, Streamname- und URL-Regeln
 - abweichender RTSP-Host oder Streamname pro Kamera möglich
 - Erstkonfiguration der Weboberfläche ohne lokales Kennwort
@@ -97,6 +98,8 @@ Zusätzlich kann für Sonderfälle weiterhin in der Kameraliste ein individuelle
 ## Stream-Wiederherstellung und Rotation
 
 ZM Wall überwacht jeden gestarteten `mpv`-Prozess. Bricht ein RTSP-Stream ab oder läuft die Netzwerk-Lesezeitüberschreitung ab, wird der Player beendet und in kurzen Abständen erneut gestartet. Sobald Kamera und RTSP-Server wieder erreichbar sind, erscheint das Bild automatisch; ein Neustart der Wall ist nicht erforderlich.
+
+Bei rotierenden Positionen wird der nächste RTSP-Stream parallel und verdeckt aufgebaut. ZM Wall prüft über die `mpv`-Steuerschnittstelle, ob bereits ein echtes Videobild dekodiert wurde. Erst dann wird dieses Fenster nach vorne geholt und der bisher sichtbare Player beendet. Ist die nächste Kamera noch nicht bereit, bleibt das bisherige Bild sichtbar und der Wechsel wartet, statt zwischenzeitlich eine schwarze Kachel anzuzeigen. Eine rotierende Position benötigt dadurch zeitweise zwei parallele Decoder und RTSP-Verbindungen.
 
 Jede Grid-Position kann eine oder mehrere Kameras enthalten. Bei mehreren Kameras wechselt ZM Wall nach dem für das betreffende Display eingestellten Intervall zur nächsten Kamera und beginnt nach der letzten wieder von vorn. Der Mindestwert beträgt fünf Sekunden. Ein einzelner Stream bleibt dauerhaft sichtbar.
 

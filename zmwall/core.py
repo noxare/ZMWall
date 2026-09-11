@@ -305,31 +305,53 @@ def render_rtsp(site: sqlite3.Row, camera: sqlite3.Row, resolution_cache: dict[s
     return site["url_template"].format(**values)
 
 
+@dataclass(frozen=True)
+class StreamSpec:
+    signature: str
+    command: list[str]
+    url: str
+
+
 @dataclass
 class Player:
     signature: str
     process: subprocess.Popen
+    ipc_path: str
 
 
 class PlayerManager:
     def __init__(self, db_path: str):
         self.db_path = db_path
         self.players: dict[str, Player] = {}
+        self.preloads: dict[str, Player] = {}
         self.stop_event = threading.Event()
         self.reload_event = threading.Event()
+        self._ipc_counter = 0
 
     def request_reload(self) -> None:
         self.reload_event.set()
 
+    @staticmethod
+    def _terminate(player: Player | None) -> None:
+        if not player:
+            return
+        if player.process.poll() is None:
+            player.process.terminate()
+        try:
+            os.unlink(player.ipc_path)
+        except FileNotFoundError:
+            pass
+
     def close(self) -> None:
         self.stop_event.set()
-        for player in self.players.values():
-            player.process.terminate()
+        for player in [*self.players.values(), *self.preloads.values()]:
+            self._terminate(player)
 
-    def desired(self) -> dict[str, tuple[str, list[str], str]]:
+    def desired(self) -> dict[str, tuple[StreamSpec, StreamSpec | None]]:
         outputs = {str(item["name"]): item for item in detect_outputs()}
-        desired: dict[str, tuple[str, list[str], str]] = {}
+        desired: dict[str, tuple[StreamSpec, StreamSpec | None]] = {}
         resolution_cache: dict[str, str | None] = {}
+
         with connect(self.db_path) as db:
             screens = db.execute("SELECT * FROM screens WHERE enabled=1").fetchall()
             for screen in screens:
@@ -343,75 +365,202 @@ class PlayerManager:
                        LEFT JOIN sites s ON s.id=c.site_id
                        LEFT JOIN zm_servers zs ON zs.site_id=c.site_id AND zs.server_id=c.server_id
                        WHERE tc.screen_id=? AND c.rtsp_enabled=1 AND c.enabled=1
-                       ORDER BY tc.position,tc.sort_order""", (screen["id"],)
+                       ORDER BY tc.position,tc.sort_order""",
+                    (screen["id"],),
                 ).fetchall()
+
                 positions: dict[int, list[sqlite3.Row]] = {}
                 for tile in tiles:
                     positions.setdefault(int(tile["position"]), []).append(tile)
+
                 for position, cameras in positions.items():
-                    tile = cameras[rotation_index(len(cameras), screen["rotation_seconds"])]
-                    col = tile["position"] % screen["cols"]
-                    row = tile["position"] // screen["cols"]
+                    col = position % screen["cols"]
+                    row = position // screen["cols"]
                     if row >= screen["rows"]:
                         continue
                     x, y, width, height = tile_geometry(
                         output, row, col, screen["rows"], screen["cols"]
                     )
-                    url = render_rtsp(tile, tile, resolution_cache)
                     local_x = x - int(output["x"])
                     local_y = y - int(output["y"])
                     geometry = format_geometry(width, height, local_x, local_y)
-                    signature = f"{url}|{screen['output_name']}|{format_geometry(width, height, x, y)}"
-                    command = [
-                        "mpv", "--no-config", "--no-audio", "--no-border", "--ontop", "--keep-open=no",
-                        "--force-window=immediate", "--force-window-position", "--auto-window-resize=no",
-                        f"--screen-name={screen['output_name']}",
-                        "--keepaspect=no", "--keepaspect-window=no", "--panscan=0", "--video-zoom=0",
-                        "--no-osc", "--cursor-autohide=always",
-                        "--hwdec=auto-safe", "--profile=low-latency",
-                        "--demuxer-lavf-o=rtsp_transport=tcp,rw_timeout=15000000",
-                        f"--geometry={geometry}", "--really-quiet", "--playlist=-",
-                    ]
-                    if tile["position"] == (screen["rows"] * screen["cols"]) - 1:
-                        command.extend([
-                            "--osd-level=1", "--osd-msg1=Strg+Alt+Ende: Abmelden",
-                            "--osd-align-x=right", "--osd-align-y=bottom",
-                            "--osd-font-size=14", "--osd-scale-by-window=no",
-                            "--osd-margin-x=8", "--osd-margin-y=6",
-                            "--osd-color=#DDFFFFFF", "--osd-outline-color=#B0000000",
-                        ])
-                    desired[f"{screen['id']}:{tile['position']}"] = (signature, command, url)
+
+                    def make_spec(camera: sqlite3.Row) -> StreamSpec:
+                        url = render_rtsp(camera, camera, resolution_cache)
+                        signature = (
+                            f"{url}|{screen['output_name']}|"
+                            f"{format_geometry(width, height, x, y)}"
+                        )
+                        command = [
+                            "mpv", "--no-config", "--no-audio", "--no-border", "--ontop",
+                            "--keep-open=no", "--force-window=immediate",
+                            "--force-window-position", "--auto-window-resize=no",
+                            f"--screen-name={screen['output_name']}",
+                            "--keepaspect=no", "--keepaspect-window=no", "--panscan=0",
+                            "--video-zoom=0", "--no-osc", "--cursor-autohide=always",
+                            "--hwdec=auto-safe", "--profile=low-latency",
+                            "--demuxer-lavf-o=rtsp_transport=tcp,rw_timeout=15000000",
+                            f"--geometry={geometry}", "--really-quiet", "--playlist=-",
+                        ]
+                        if position == (screen["rows"] * screen["cols"]) - 1:
+                            command.extend([
+                                "--osd-level=1", "--osd-msg1=Strg+Alt+Ende: Abmelden",
+                                "--osd-align-x=right", "--osd-align-y=bottom",
+                                "--osd-font-size=14", "--osd-scale-by-window=no",
+                                "--osd-margin-x=8", "--osd-margin-y=6",
+                                "--osd-color=#DDFFFFFF", "--osd-outline-color=#B0000000",
+                            ])
+                        return StreamSpec(signature, command, url)
+
+                    current_index = rotation_index(
+                        len(cameras), screen["rotation_seconds"]
+                    )
+                    next_index = (current_index + 1) % len(cameras)
+                    current = make_spec(cameras[current_index])
+                    upcoming = make_spec(cameras[next_index]) if len(cameras) > 1 else None
+                    desired[f"{screen['id']}:{position}"] = (current, upcoming)
         return desired
+
+    def _launch(self, key: str, spec: StreamSpec, hidden: bool) -> Player | None:
+        env = dict(os.environ)
+        env["DISPLAY"] = os.getenv("ZMWALL_DISPLAY", env.get("DISPLAY", ":0"))
+        self._ipc_counter += 1
+        safe_key = re.sub(r"[^A-Za-z0-9_.-]", "-", key)
+        ipc_path = f"/tmp/zmwall-{os.getpid()}-{safe_key}-{self._ipc_counter}.sock"
+        command = list(spec.command)
+        if hidden:
+            command[command.index("--ontop")] = "--ontop=no"
+        command.insert(-1, f"--input-ipc-server={ipc_path}")
+        try:
+            process = subprocess.Popen(command, env=env, stdin=subprocess.PIPE, text=True)
+            if process.stdin:
+                process.stdin.write(spec.url + "\n")
+                process.stdin.close()
+            return Player(spec.signature, process, ipc_path)
+        except OSError:
+            try:
+                os.unlink(ipc_path)
+            except FileNotFoundError:
+                pass
+            return None
+
+    @staticmethod
+    def _ipc(player: Player, command: list[Any]) -> dict[str, Any] | None:
+        if player.process.poll() is not None:
+            return None
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                client.settimeout(0.25)
+                client.connect(player.ipc_path)
+                request_body = json.dumps({"command": command}).encode() + b"\n"
+                client.sendall(request_body)
+                response = b""
+                while b"\n" not in response:
+                    chunk = client.recv(65536)
+                    if not chunk:
+                        break
+                    response += chunk
+            return json.loads(response.split(b"\n", 1)[0]) if response else None
+        except (OSError, ValueError, json.JSONDecodeError):
+            return None
+
+    def _ready(self, player: Player) -> bool:
+        response = self._ipc(player, ["get_property", "video-params"])
+        return bool(
+            response
+            and response.get("error") == "success"
+            and isinstance(response.get("data"), dict)
+            and response["data"].get("w")
+            and response["data"].get("h")
+        )
+
+    def _promote(self, key: str, player: Player) -> None:
+        old = self.players.get(key)
+        # The preloaded window already contains a decoded frame. Raise it first,
+        # then remove the old player so no black gap is exposed.
+        self._ipc(player, ["set_property", "ontop", True])
+        try:
+            subprocess.run(
+                ["xdotool", "search", "--onlyvisible", "--pid", str(player.process.pid), "windowraise"],
+                check=False, capture_output=True, timeout=1,
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
+        self.players[key] = player
+        self.preloads.pop(key, None)
+        if old is not player:
+            self._terminate(old)
 
     def reconcile(self) -> None:
         try:
             wanted = self.desired()
         except Exception:
             return
-        for key, player in list(self.players.items()):
-            if key not in wanted or wanted[key][0] != player.signature or player.process.poll() is not None:
-                if player.process.poll() is None:
-                    player.process.terminate()
+
+        for key in set(self.players) - set(wanted):
+            self._terminate(self.players.pop(key))
+        for key in set(self.preloads) - set(wanted):
+            self._terminate(self.preloads.pop(key))
+
+        for key, (current, upcoming) in wanted.items():
+            active = self.players.get(key)
+            preload = self.preloads.get(key)
+
+            if active and active.process.poll() is not None:
+                self._terminate(active)
                 self.players.pop(key, None)
-        env = dict(os.environ)
-        env["DISPLAY"] = os.getenv("ZMWALL_DISPLAY", env.get("DISPLAY", ":0"))
-        for key, (signature, command, url) in wanted.items():
-            if key not in self.players:
-                try:
-                    process = subprocess.Popen(command, env=env, stdin=subprocess.PIPE, text=True)
-                    if process.stdin:
-                        process.stdin.write(url + "\n")
-                        process.stdin.close()
-                    self.players[key] = Player(signature, process)
-                except OSError:
-                    # The next reconciliation pass retries automatically.
-                    continue
+                active = None
+            if preload and preload.process.poll() is not None:
+                self._terminate(preload)
+                self.preloads.pop(key, None)
+                preload = None
+
+            if not active:
+                if preload and preload.signature == current.signature and self._ready(preload):
+                    self._promote(key, preload)
+                    active = preload
+                    preload = None
+                else:
+                    if preload:
+                        self._terminate(preload)
+                        self.preloads.pop(key, None)
+                        preload = None
+                    active = self._launch(key, current, hidden=False)
+                    if active:
+                        self.players[key] = active
+
+            elif active.signature != current.signature:
+                # Never remove the visible stream until its replacement has
+                # decoded a real frame.
+                if preload and preload.signature == current.signature:
+                    if self._ready(preload):
+                        self._promote(key, preload)
+                        active = preload
+                        preload = None
+                else:
+                    if preload:
+                        self._terminate(preload)
+                    preload = self._launch(key, current, hidden=True)
+                    if preload:
+                        self.preloads[key] = preload
+
+            if active and active.signature == current.signature:
+                target = upcoming
+                preload = self.preloads.get(key)
+                if target is None:
+                    if preload:
+                        self._terminate(preload)
+                        self.preloads.pop(key, None)
+                elif not preload or preload.signature != target.signature:
+                    if preload:
+                        self._terminate(preload)
+                    preload = self._launch(key, target, hidden=True)
+                    if preload:
+                        self.preloads[key] = preload
 
     def run(self) -> None:
         while not self.stop_event.is_set():
             self.reconcile()
-            # Short polling is needed both for failed-stream retries and camera
-            # rotation. A running player is left untouched until its signature
-            # changes or its process exits.
-            self.reload_event.wait(2)
+            self.reload_event.wait(1)
             self.reload_event.clear()
+

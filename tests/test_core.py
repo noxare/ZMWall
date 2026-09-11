@@ -137,3 +137,78 @@ def test_old_single_camera_tiles_are_migrated():
         assert screen["rotation_seconds"] == 30
         assert migrated["camera_key"] == "1:4"
         assert migrated["position"] == 0
+
+
+def test_player_manager_prepares_current_and_upcoming_stream(monkeypatch):
+    with tempfile.TemporaryDirectory() as directory:
+        db_path = str(Path(directory) / "rotation.db")
+        init_db(db_path)
+        with connect(db_path) as db:
+            site_id = db.execute(
+                "INSERT INTO sites(name,base_url,username,password) VALUES(?,?,?,?)",
+                ("Test", "https://zm/zm", "user", "password"),
+            ).lastrowid
+            db.executemany(
+                """INSERT INTO cameras(camera_key,site_id,zm_id,name,rtsp_host,
+                                          rtsp_enabled,rtsp_stream_name)
+                   VALUES(?,?,?,?,?,?,?)""",
+                [
+                    ("1:4", site_id, "4", "Tor", "10.0.0.2", 1, "tor"),
+                    ("1:5", site_id, "5", "Hof", "10.0.0.2", 1, "hof"),
+                ],
+            )
+            screen_id = db.execute(
+                """INSERT INTO screens(output_name,rows,cols,rotation_seconds)
+                   VALUES('HDMI-1',1,1,30)"""
+            ).lastrowid
+            db.executemany(
+                """INSERT INTO tile_cameras(screen_id,position,camera_key,sort_order)
+                   VALUES(?,?,?,?)""",
+                [(screen_id, 0, "1:4", 0), (screen_id, 0, "1:5", 1)],
+            )
+
+        monkeypatch.setattr(
+            core,
+            "detect_outputs",
+            lambda: [{"name": "HDMI-1", "width": 1920, "height": 1080, "x": 0, "y": 0}],
+        )
+        monkeypatch.setattr(core.time, "monotonic", lambda: 0)
+        current, upcoming = core.PlayerManager(db_path).desired()[f"{screen_id}:0"]
+        assert "/tor?" in current.url
+        assert upcoming is not None
+        assert "/hof?" in upcoming.url
+
+
+def test_rotation_keeps_old_player_until_preload_has_video(monkeypatch):
+    class FakeProcess:
+        def __init__(self, pid):
+            self.pid = pid
+            self.terminated = False
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            self.terminated = True
+
+    manager = core.PlayerManager("unused.db")
+    old_process = FakeProcess(10)
+    next_process = FakeProcess(11)
+    old = core.Player("old", old_process, "/tmp/not-created-old.sock")
+    preloaded = core.Player("next", next_process, "/tmp/not-created-next.sock")
+    spec = core.StreamSpec("next", ["mpv"], "rtsp://next")
+    manager.players["1:0"] = old
+    manager.preloads["1:0"] = preloaded
+    monkeypatch.setattr(manager, "desired", lambda: {"1:0": (spec, None)})
+    monkeypatch.setattr(manager, "_ready", lambda player: False)
+
+    manager.reconcile()
+    assert manager.players["1:0"] is old
+    assert not old_process.terminated
+
+    monkeypatch.setattr(manager, "_ready", lambda player: True)
+    monkeypatch.setattr(manager, "_ipc", lambda player, command: {"error": "success"})
+    monkeypatch.setattr(core.subprocess, "run", lambda *args, **kwargs: None)
+    manager.reconcile()
+    assert manager.players["1:0"] is preloaded
+    assert old_process.terminated

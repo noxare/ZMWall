@@ -29,13 +29,14 @@
         <div id="camera-pool" class="camera-pool-list dropzone" data-dropzone="pool">
           {% for camera in available_cameras %}
             <div class="camera-chip" draggable="true" tabindex="0"
-                 data-camera-key="{{ camera.camera_key }}" data-camera-name="{{ camera.name|lower }}">
+                 data-camera-key="{{ camera.camera_key }}" data-camera-search="{{ (camera.name ~ ' ' ~ (camera.server_name or '') ~ ' ' ~ camera.zm_id)|lower }}">
               <span><strong>{{ camera.name }}</strong><small>{{ camera.server_name or 'lokaler Server' }} · ID {{ camera.zm_id }}</small></span>
               <button type="button" class="unassign" title="Zuordnung entfernen" aria-label="{{ camera.name }} zurücklegen">×</button>
             </div>
           {% else %}
             <p class="pool-empty">Alle RTSP-Kameras sind zugeordnet.</p>
           {% endfor %}
+          <p id="filter-empty" class="filter-empty" hidden>Keine passende Kamera gefunden.</p>
         </div>
         <p class="touch-help">Auf Touch-Geräten: Kamera antippen, danach die gewünschte Position antippen.</p>
       </aside>
@@ -64,7 +65,7 @@
                   <div class="tile-camera-list">
                     {% for camera in assignments.get(tile_key, []) %}
                       <div class="camera-chip" draggable="true" tabindex="0"
-                           data-camera-key="{{ camera.camera_key }}" data-camera-name="{{ camera.name|lower }}">
+                           data-camera-key="{{ camera.camera_key }}" data-camera-search="{{ (camera.name ~ ' ' ~ (camera.server_name or ''))|lower }}">
                         <span><strong>{{ camera.name }}</strong><small>{{ camera.server_name or 'lokaler Server' }}</small></span>
                         <button type="button" class="unassign" title="Zuordnung entfernen" aria-label="{{ camera.name }} zurücklegen">×</button>
                       </div>
@@ -152,4 +153,3 @@
 </main>
 </body>
 </html>
-

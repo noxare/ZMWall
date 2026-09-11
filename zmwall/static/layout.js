@@ -125,10 +125,14 @@
 
   const filter = document.getElementById("camera-filter");
   function applyFilter() {
-    const term = (filter?.value || "").trim().toLowerCase();
+    const term = (filter?.value || "").trim().toLocaleLowerCase("de");
+    let visible = 0;
     pool.querySelectorAll(".camera-chip").forEach((chip) => {
-      chip.hidden = Boolean(term && !chip.dataset.cameraName.includes(term));
+      chip.hidden = Boolean(term && !chip.dataset.cameraSearch.includes(term));
+      if (!chip.hidden) visible += 1;
     });
+    const noMatch = document.getElementById("filter-empty");
+    if (noMatch) noMatch.hidden = !term || visible > 0;
   }
   if (filter) filter.addEventListener("input", applyFilter);
 

@@ -55,6 +55,7 @@ summary { cursor: pointer; font-weight: 700; }
 .pool-head { display: grid; gap: 12px; }
 .camera-pool-list { min-height: 110px; overflow-y: auto; display: grid; align-content: start; gap: 8px; padding: 4px; border: 1px dashed transparent; border-radius: 8px; }
 .pool-empty { color: var(--muted); padding: 18px 8px; text-align: center; }
+.filter-empty { color: var(--muted); padding: 18px 8px; text-align: center; }
 .touch-help { color: var(--muted); font-size: 12px; }
 .screen-settings { display: grid; grid-template-columns: repeat(3, minmax(100px, 180px)); gap: 12px; margin-bottom: 16px; }
 
@@ -67,6 +68,7 @@ summary { cursor: pointer; font-weight: 700; }
 .dropzone.drag-over, .dropzone.tap-target { border-color: var(--line-active); background: #10251f; }
 
 .camera-chip { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; padding: 9px 9px 9px 11px; background: #18232d; border: 1px solid #314454; border-radius: 7px; cursor: grab; user-select: none; }
+.camera-chip[hidden] { display: none; }
 .camera-chip:active { cursor: grabbing; }
 .camera-chip.dragging { opacity: .4; }
 .camera-chip.selected { border-color: var(--accent); box-shadow: 0 0 0 2px #27d39f33; }
