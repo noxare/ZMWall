@@ -20,27 +20,6 @@ cp -a "$SOURCE_DIR"/. "$APP_DIR"/
 python3 -m venv "$APP_DIR/.venv"
 "$APP_DIR/.venv/bin/pip" install --disable-pip-version-check -r "$APP_DIR/requirements.txt"
 
-read -r -p "Benutzer für die Weboberfläche [admin]: " ADMIN_USER
-ADMIN_USER=${ADMIN_USER:-admin}
-while true; do
-  read -r -s -p "Passwort für die Weboberfläche: " ADMIN_PASSWORD
-  echo
-  if [ -z "$ADMIN_PASSWORD" ]; then
-    echo "Das Passwort darf nicht leer sein. Bitte erneut eingeben."
-    continue
-  fi
-
-  read -r -s -p "Passwort wiederholen: " ADMIN_PASSWORD_CONFIRM
-  echo
-  if [ "$ADMIN_PASSWORD" != "$ADMIN_PASSWORD_CONFIRM" ]; then
-    echo "Die Passwörter stimmen nicht überein. Bitte erneut eingeben."
-    continue
-  fi
-
-  unset ADMIN_PASSWORD_CONFIRM
-  break
-done
-PASSWORD_HASH=$("$APP_DIR/.venv/bin/python" -c 'import sys; from werkzeug.security import generate_password_hash; print(generate_password_hash(sys.argv[1]))' "$ADMIN_PASSWORD")
 SECRET_KEY=$(openssl rand -hex 32)
 
 install -d -o "$APP_USER" -g "$APP_USER" -m 0700 /var/lib/zmwall
@@ -48,8 +27,6 @@ install -o "$APP_USER" -g "$APP_USER" -m 0600 /dev/null "$ENV_FILE"
 {
   printf 'ZMWALL_BIND=%q\n' "0.0.0.0"
   printf 'ZMWALL_PORT=%q\n' "8080"
-  printf 'ZMWALL_ADMIN_USER=%q\n' "$ADMIN_USER"
-  printf 'ZMWALL_ADMIN_PASSWORD_HASH=%q\n' "$PASSWORD_HASH"
   printf 'ZMWALL_SECRET_KEY=%q\n' "$SECRET_KEY"
   printf 'ZMWALL_DB=%q\n' "/var/lib/zmwall/zmwall.db"
   printf 'ZMWALL_DISPLAY=%q\n' ":0"
@@ -77,4 +54,5 @@ chmod 0600 "$ENV_FILE"
 systemctl enable lightdm
 
 echo "Installation abgeschlossen. Nach dem Neustart: http://DIE-IP-DIESES-RECHNERS:8080"
+echo "Die Erstkonfiguration ist ohne Web-Login möglich. Nach dem ersten erfolgreichen ZoneMinder-Sync werden gültige ZoneMinder-Zugangsdaten für die Weboberfläche verlangt."
 echo "Die Datei $ENV_FILE enthält Geheimnisse und ist nur für den Dienstbenutzer lesbar."
