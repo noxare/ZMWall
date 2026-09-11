@@ -22,12 +22,24 @@ python3 -m venv "$APP_DIR/.venv"
 
 read -r -p "Benutzer für die Weboberfläche [admin]: " ADMIN_USER
 ADMIN_USER=${ADMIN_USER:-admin}
-read -r -s -p "Passwort für die Weboberfläche: " ADMIN_PASSWORD
-echo
-if [ -z "$ADMIN_PASSWORD" ]; then
-  echo "Das Passwort darf nicht leer sein."
-  exit 1
-fi
+while true; do
+  read -r -s -p "Passwort für die Weboberfläche: " ADMIN_PASSWORD
+  echo
+  if [ -z "$ADMIN_PASSWORD" ]; then
+    echo "Das Passwort darf nicht leer sein. Bitte erneut eingeben."
+    continue
+  fi
+
+  read -r -s -p "Passwort wiederholen: " ADMIN_PASSWORD_CONFIRM
+  echo
+  if [ "$ADMIN_PASSWORD" != "$ADMIN_PASSWORD_CONFIRM" ]; then
+    echo "Die Passwörter stimmen nicht überein. Bitte erneut eingeben."
+    continue
+  fi
+
+  unset ADMIN_PASSWORD_CONFIRM
+  break
+done
 PASSWORD_HASH=$("$APP_DIR/.venv/bin/python" -c 'import sys; from werkzeug.security import generate_password_hash; print(generate_password_hash(sys.argv[1]))' "$ADMIN_PASSWORD")
 SECRET_KEY=$(openssl rand -hex 32)
 
