@@ -2,7 +2,7 @@ import tempfile
 from pathlib import Path
 
 import zmwall.core as core
-from zmwall.core import choose_rtsp_host, connect, format_geometry, init_db, render_rtsp, tile_geometry
+from zmwall.core import choose_rtsp_host, connect, format_geometry, init_db, render_rtsp, tile_geometry, zm_enabled
 
 
 def test_schema_and_rtsp_template():
@@ -47,3 +47,34 @@ def test_grid_cells_cover_complete_output_without_overlap():
 
 def test_geometry_uses_valid_signs_for_monitors_left_of_primary():
     assert format_geometry(640, 540, -1920, 0) == "640x540-1920+0"
+
+
+def test_zoneminder_boolean_values():
+    assert zm_enabled(1)
+    assert zm_enabled("true")
+    assert not zm_enabled(0)
+    assert not zm_enabled("false")
+
+
+def test_api_rtsp_stream_name_takes_precedence():
+    with tempfile.TemporaryDirectory() as directory:
+        db_path = str(Path(directory) / "test.db")
+        init_db(db_path)
+        with connect(db_path) as db:
+            site_id = db.execute(
+                "INSERT INTO sites(name,base_url,username,password) VALUES(?,?,?,?)",
+                ("Test", "https://zm/zm", "user", "password"),
+            ).lastrowid
+            db.execute(
+                """INSERT INTO cameras(camera_key,site_id,zm_id,name,rtsp_host,
+                                          rtsp_enabled,rtsp_stream_name)
+                   VALUES(?,?,?,?,?,?,?)""",
+                (f"{site_id}:100", site_id, "100", "Tor", "10.0.0.2", 1, "gate-stream"),
+            )
+            row = db.execute(
+                """SELECT c.*,s.rtsp_port,s.stream_template,s.url_template,s.username,s.password,
+                          NULL AS zm_server_hostname,NULL AS resolved_ip,NULL AS ip_override
+                   FROM cameras c JOIN sites s ON s.id=c.site_id"""
+            ).fetchone()
+            url = render_rtsp(row, row)
+        assert "/gate-stream?" in url

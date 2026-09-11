@@ -89,10 +89,16 @@ def index():
         sites = db.execute("SELECT * FROM sites ORDER BY name").fetchall()
         zm_servers = db.execute("SELECT * FROM zm_servers ORDER BY site_id,name").fetchall()
         cameras = db.execute("SELECT * FROM cameras ORDER BY name").fetchall()
+        selectable_cameras = db.execute(
+            "SELECT * FROM cameras WHERE rtsp_enabled=1 ORDER BY name"
+        ).fetchall()
         screens = db.execute("SELECT * FROM screens ORDER BY output_name").fetchall()
         assignments = {f"{r['screen_id']}:{r['position']}": r["camera_key"] or "" for r in db.execute("SELECT * FROM tiles")}
-    return render_template("index.html", sites=sites, zm_servers=zm_servers, cameras=cameras, screens=screens,
-                           assignments=assignments, outputs=detect_outputs())
+    return render_template(
+        "index.html", sites=sites, zm_servers=zm_servers, cameras=cameras,
+        selectable_cameras=selectable_cameras, screens=screens, assignments=assignments,
+        outputs=detect_outputs(),
+    )
 
 
 @app.post("/sites")

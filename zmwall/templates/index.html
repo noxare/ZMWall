@@ -24,7 +24,7 @@
           {% for position in range(screen.rows * screen.cols) %}
             <label class="tile"><span>{{ position + 1 }}</span><select name="tile_{{ position }}">
               <option value="">Leer</option>
-              {% for camera in cameras %}<option value="{{ camera.camera_key }}" {% if assignments.get(screen.id|string + ':' + position|string) == camera.camera_key %}selected{% endif %}>{{ camera.name }}</option>{% endfor %}
+              {% for camera in selectable_cameras %}<option value="{{ camera.camera_key }}" {% if assignments.get(screen.id|string + ':' + position|string) == camera.camera_key %}selected{% endif %}>{{ camera.name }}</option>{% endfor %}
             </select></label>
           {% endfor %}
           </div>
@@ -89,10 +89,10 @@
   </section>
 
   <section>
-    <div class="section-head"><div><h2>Kameras</h2><p>{{ cameras|length }} aus ZoneMinder übernommene Monitore</p></div></div>
+    <div class="section-head"><div><h2>Kameras</h2><p>{{ selectable_cameras|length }} RTSP-aktiv · {{ cameras|length }} insgesamt</p></div></div>
     <div class="camera-list">
     {% for camera in cameras %}<form class="camera" method="post" action="{{ url_for('update_camera', camera_key=camera.camera_key) }}">
-      <div><strong>{{ camera.name }}</strong><small>ID {{ camera.zm_id }} · {{ camera.server_name or 'lokaler Server' }} · {{ camera.status }}</small></div>
+      <div><strong>{{ camera.name }}</strong><small>ID {{ camera.zm_id }} · {{ camera.server_name or 'lokaler Server' }} · {{ camera.status }} · {% if camera.rtsp_enabled %}RTSP aktiv{% else %}kein RTSP{% endif %}</small></div>
       <label>RTSP-Host (optional)<input name="rtsp_host_override" value="{{ camera.rtsp_host_override or '' }}" placeholder="Automatisch: {{ camera.rtsp_host }}"></label><label>Streamname (optional)<input name="stream_override" value="{{ camera.stream_override or '' }}" placeholder="Regel verwenden"></label><button>Speichern</button>
     </form>{% else %}<div class="empty">Nach dem Verbinden erscheinen hier die Kameras.</div>{% endfor %}
     </div>

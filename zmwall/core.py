@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS cameras (
   server_id TEXT,
   server_name TEXT,
   rtsp_host TEXT NOT NULL,
+  rtsp_enabled INTEGER NOT NULL DEFAULT 0,
+  rtsp_stream_name TEXT,
   rtsp_host_override TEXT,
   stream_override TEXT,
   status TEXT,
@@ -87,6 +89,12 @@ def init_db(db_path: str) -> None:
         columns = {row["name"] for row in db.execute("PRAGMA table_info(cameras)")}
         if "rtsp_host_override" not in columns:
             db.execute("ALTER TABLE cameras ADD COLUMN rtsp_host_override TEXT")
+        if "rtsp_enabled" not in columns:
+            # Preserve existing layouts until the first API sync supplies the
+            # authoritative RTSPServer value.
+            db.execute("ALTER TABLE cameras ADD COLUMN rtsp_enabled INTEGER NOT NULL DEFAULT 1")
+        if "rtsp_stream_name" not in columns:
+            db.execute("ALTER TABLE cameras ADD COLUMN rtsp_stream_name TEXT")
 
 
 def api_url(base_url: str, suffix: str) -> str:
@@ -98,6 +106,10 @@ def resolve_ipv4(hostname: str) -> str | None:
         return socket.gethostbyname(hostname)
     except (socket.gaierror, UnicodeError):
         return None
+
+
+def zm_enabled(value: Any) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def choose_rtsp_host(camera: sqlite3.Row, resolution_cache: dict[str, str | None] | None = None) -> str:
@@ -175,15 +187,21 @@ def sync_site(db_path: str, site_id: int) -> tuple[int, str | None]:
                 server = servers.get(server_id, {})
                 host = server.get("Hostname") or controller_host
                 status_obj = item.get("Monitor_Status") or {}
+                rtsp_enabled = 1 if zm_enabled(monitor.get("RTSPServer")) else 0
+                rtsp_stream_name = str(monitor.get("RTSPStreamName") or "").strip() or None
                 key = f"{site_id}:{monitor_id}"
                 seen.add(key)
                 db.execute(
-                    """INSERT INTO cameras(camera_key,site_id,zm_id,name,server_id,server_name,rtsp_host,status)
-                       VALUES(?,?,?,?,?,?,?,?)
+                    """INSERT INTO cameras(camera_key,site_id,zm_id,name,server_id,server_name,rtsp_host,
+                                             rtsp_enabled,rtsp_stream_name,status)
+                       VALUES(?,?,?,?,?,?,?,?,?,?)
                        ON CONFLICT(camera_key) DO UPDATE SET name=excluded.name,server_id=excluded.server_id,
-                       server_name=excluded.server_name,rtsp_host=excluded.rtsp_host,status=excluded.status""",
+                       server_name=excluded.server_name,rtsp_host=excluded.rtsp_host,
+                       rtsp_enabled=excluded.rtsp_enabled,rtsp_stream_name=excluded.rtsp_stream_name,
+                       status=excluded.status""",
                     (key, site_id, monitor_id, monitor.get("Name") or f"Kamera {monitor_id}", server_id,
-                     server.get("Name") or "", host, status_obj.get("Status") or "unbekannt"),
+                     server.get("Name") or "", host, rtsp_enabled, rtsp_stream_name,
+                     status_obj.get("Status") or "unbekannt"),
                 )
             if seen:
                 placeholders = ",".join("?" for _ in seen)
@@ -229,7 +247,7 @@ def format_geometry(width: int, height: int, x: int, y: int) -> str:
 
 
 def render_rtsp(site: sqlite3.Row, camera: sqlite3.Row, resolution_cache: dict[str, str | None] | None = None) -> str:
-    stream = camera["stream_override"] or site["stream_template"].format(
+    stream = camera["stream_override"] or camera["rtsp_stream_name"] or site["stream_template"].format(
         id=camera["zm_id"], name=camera["name"], server_id=camera["server_id"] or ""
     )
     values = {
