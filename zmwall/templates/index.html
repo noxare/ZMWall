@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ZM Wall</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header><div><h1>ZM Wall</h1><p>ZoneMinder-RTSP-Videowand</p></div><span class="live">● Anzeige aktiv</span></header>
+<main>
+  {% for category, message in get_flashed_messages(with_categories=true) %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}
+
+  <section>
+    <div class="section-head"><div><h2>Anzeige</h2><p>Grid und Kamerabelegung je physischem Ausgang</p></div></div>
+    <div class="cards">
+    {% for screen in screens %}
+      <article class="card screen-card">
+        <form method="post" action="{{ url_for('save_screen') }}">
+          <div class="card-head"><h3>{{ screen.output_name }}</h3><span>{{ screen.rows }} × {{ screen.cols }}</span></div>
+          <input type="hidden" name="output_name" value="{{ screen.output_name }}">
+          <div class="row compact"><label>Zeilen<input type="number" name="rows" min="1" max="8" value="{{ screen.rows }}"></label><label>Spalten<input type="number" name="cols" min="1" max="8" value="{{ screen.cols }}"></label></div>
+          <div class="grid" style="--cols:{{ screen.cols }}">
+          {% for position in range(screen.rows * screen.cols) %}
+            <label class="tile"><span>{{ position + 1 }}</span><select name="tile_{{ position }}">
+              <option value="">Leer</option>
+              {% for camera in cameras %}<option value="{{ camera.camera_key }}" {% if assignments.get(screen.id|string + ':' + position|string) == camera.camera_key %}selected{% endif %}>{{ camera.name }}</option>{% endfor %}
+            </select></label>
+          {% endfor %}
+          </div>
+          <button>Layout übernehmen</button>
+        </form>
+        <form method="post" action="{{ url_for('delete_screen', screen_id=screen.id) }}" onsubmit="return confirm('Anzeige wirklich entfernen?')"><button class="link danger">Anzeige entfernen</button></form>
+      </article>
+    {% else %}<div class="empty">Noch kein Display eingerichtet.</div>{% endfor %}
+    </div>
+    <details class="panel"><summary>Display hinzufügen</summary>
+      <form method="post" action="{{ url_for('save_screen') }}" class="form-grid">
+        <label>Ausgang<select name="output_name" required>{% for output in outputs %}<option>{{ output.name }}</option>{% endfor %}</select></label>
+        <label>Zeilen<input type="number" name="rows" min="1" max="8" value="2"></label>
+        <label>Spalten<input type="number" name="cols" min="1" max="8" value="2"></label>
+        <button>Hinzufügen</button>
+      </form>
+      {% if not outputs %}<p class="warning">Keine XRandR-Ausgänge erkannt. Prüfe, ob die Oberfläche auf dem Anzeigerechner unter DISPLAY=:0 läuft.</p>{% endif %}
+    </details>
+  </section>
+
+  <section>
+    <div class="section-head"><div><h2>ZoneMinder</h2><p>API-Verbindungen und RTSP-Regeln</p></div></div>
+    <div class="cards">
+    {% for site in sites %}
+      <article class="card">
+        <div class="card-head"><h3>{{ site.name }}</h3><span class="status {% if site.last_error %}bad{% endif %}">{{ site.last_error or 'Verbunden' }}</span></div>
+        <form method="post" action="{{ url_for('update_site', site_id=site.id) }}" class="form-grid">
+          <label>Name<input name="name" value="{{ site.name }}" required></label>
+          <label>ZoneMinder-URL<input name="base_url" value="{{ site.base_url }}" required></label>
+          <label>ZM-Benutzer<input name="username" value="{{ site.username }}" required></label>
+          <label>Neues ZM-Passwort<input name="password" type="password" placeholder="unverändert lassen"></label>
+          <label>RTSP-Port<input name="rtsp_port" type="number" value="{{ site.rtsp_port }}" required></label>
+          <label>Streamname-Regel<input name="stream_template" value="{{ site.stream_template }}" required><small>Variablen: {id}, {name}, {server_id}</small></label>
+          <label class="wide">RTSP-URL-Vorlage<input name="url_template" value="{{ site.url_template }}" required><small>{host}, {port}, {stream}, {username}, {password}, {id}, {name}</small></label>
+          <label class="check"><input type="checkbox" name="verify_tls" {% if site.verify_tls %}checked{% endif %}> TLS-Zertifikat prüfen</label>
+          <button>Speichern und synchronisieren</button>
+        </form>
+        <div class="actions"><form method="post" action="{{ url_for('sync', site_id=site.id) }}"><button class="secondary">Jetzt synchronisieren</button></form><form method="post" action="{{ url_for('delete_site', site_id=site.id) }}" onsubmit="return confirm('Verbindung und Kameras löschen?')"><button class="link danger">Löschen</button></form></div>
+        <div class="server-list">
+        {% for server in zm_servers if server.site_id == site.id %}
+          <form method="post" action="{{ url_for('update_zm_server', site_id=site.id, server_id=server.server_id) }}" class="server-row">
+            <div><strong>{{ server.name }}</strong><small>ID {{ server.server_id }} · {{ server.hostname }} · zuletzt aufgelöst: {{ server.resolved_ip or 'nicht auflösbar' }}</small></div>
+            <label>Fallback-IP<input name="ip_override" value="{{ server.ip_override or '' }}" placeholder="{{ server.resolved_ip or 'z. B. 172.24.0.128' }}"></label>
+            <button class="secondary">Speichern</button>
+          </form>
+        {% endfor %}
+        </div>
+      </article>
+    {% endfor %}
+    </div>
+    <details class="panel" {% if not sites %}open{% endif %}><summary>ZoneMinder-Verbindung hinzufügen</summary>
+      <form method="post" action="{{ url_for('add_site') }}" class="form-grid">
+        <label>Name<input name="name" placeholder="Zentrale" required></label>
+        <label>ZoneMinder-URL<input name="base_url" placeholder="https://zm.example/zm" required></label>
+        <label>ZM-Benutzer<input name="username" required></label><label>ZM-Passwort<input name="password" type="password" required></label>
+        <label>RTSP-Port<input name="rtsp_port" type="number" value="20000" required></label>
+        <label>Streamname-Regel<input name="stream_template" value="{id}" required></label>
+        <label class="wide">RTSP-URL-Vorlage<input name="url_template" value="rtsp://{host}:{port}/{stream}?username={username}&password={password}" required></label>
+        <label class="check"><input type="checkbox" name="verify_tls" checked> TLS-Zertifikat prüfen</label><button>Verbinden</button>
+      </form>
+    </details>
+  </section>
+
+  <section>
+    <div class="section-head"><div><h2>Kameras</h2><p>{{ cameras|length }} aus ZoneMinder übernommene Monitore</p></div></div>
+    <div class="camera-list">
+    {% for camera in cameras %}<form class="camera" method="post" action="{{ url_for('update_camera', camera_key=camera.camera_key) }}">
+      <div><strong>{{ camera.name }}</strong><small>ID {{ camera.zm_id }} · {{ camera.server_name or 'lokaler Server' }} · {{ camera.status }}</small></div>
+      <label>RTSP-Host (optional)<input name="rtsp_host_override" value="{{ camera.rtsp_host_override or '' }}" placeholder="Automatisch: {{ camera.rtsp_host }}"></label><label>Streamname (optional)<input name="stream_override" value="{{ camera.stream_override or '' }}" placeholder="Regel verwenden"></label><button>Speichern</button>
+    </form>{% else %}<div class="empty">Nach dem Verbinden erscheinen hier die Kameras.</div>{% endfor %}
+    </div>
+  </section>
+</main>
+</body></html>
