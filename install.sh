@@ -42,6 +42,16 @@ install -d -m 0755 /etc/lightdm/lightdm.conf.d
 
 install -d -o "$APP_USER" -g "$APP_USER" -m 0755 "/home/$APP_USER/.config/openbox"
 {
+  echo '<?xml version="1.0" encoding="UTF-8"?>'
+  echo '<openbox_config xmlns="http://openbox.org/3.4/rc">'
+  echo '  <keyboard>'
+  echo '    <keybind key="C-A-End">'
+  echo '      <action name="Exit"><prompt>no</prompt></action>'
+  echo '    </keybind>'
+  echo '  </keyboard>'
+  echo '</openbox_config>'
+} > "/home/$APP_USER/.config/openbox/rc.xml"
+{
   echo "xset -dpms"
   echo "xset s off"
   echo "xset s noblank"

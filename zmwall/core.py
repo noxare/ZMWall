@@ -336,6 +336,14 @@ class PlayerManager:
                         "--hwdec=auto-safe", "--profile=low-latency", "--demuxer-lavf-o=rtsp_transport=tcp",
                         f"--geometry={geometry}", "--really-quiet", "--playlist=-",
                     ]
+                    if tile["position"] == (screen["rows"] * screen["cols"]) - 1:
+                        command.extend([
+                            "--osd-level=1", "--osd-msg1=Strg+Alt+Ende: Abmelden",
+                            "--osd-align-x=right", "--osd-align-y=bottom",
+                            "--osd-font-size=14", "--osd-scale-by-window=no",
+                            "--osd-margin-x=8", "--osd-margin-y=6",
+                            "--osd-color=#DDFFFFFF", "--osd-outline-color=#B0000000",
+                        ])
                     desired[f"{screen['id']}:{tile['position']}"] = (
                         signature, command, url, (x, y, width, height)
                     )
