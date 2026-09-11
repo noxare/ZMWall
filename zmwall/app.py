@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import hmac
 import os
 import threading
 import time
 from functools import wraps
 
+import requests
 from flask import Flask, Response, flash, redirect, render_template, request, url_for
-from werkzeug.security import check_password_hash
 
-from .core import PlayerManager, connect, detect_outputs, init_db, sync_site
+from .core import PlayerManager, api_url, connect, detect_outputs, init_db, sync_site
 
 
 DB_PATH = os.getenv("ZMWALL_DB", "/var/lib/zmwall/zmwall.db")
@@ -19,18 +18,66 @@ init_db(DB_PATH)
 manager = PlayerManager(DB_PATH)
 
 
+def _auth_sites():
+    """Return enabled ZoneMinder sites that completed at least one successful sync.
+
+    Until such a site exists, the web UI intentionally stays open so the first
+    ZoneMinder connection can be configured or repaired.
+    """
+    with connect(DB_PATH) as db:
+        return db.execute(
+            """SELECT base_url,verify_tls FROM sites
+               WHERE enabled=1 AND last_sync IS NOT NULL
+               ORDER BY id"""
+        ).fetchall()
+
+
+def _zone_minder_login(base_url: str, verify_tls: bool, username: str, password: str) -> bool:
+    session = requests.Session()
+    session.verify = verify_tls
+    try:
+        response = session.post(
+            api_url(base_url, "host/login.json"),
+            data={"user": username, "pass": password},
+            timeout=10,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        # Current ZoneMinder versions return an access token. Older API setups
+        # may return a credentials query string instead.
+        return bool(payload.get("access_token") or payload.get("credentials"))
+    except (requests.RequestException, ValueError, TypeError):
+        return False
+
+
 def authorized() -> bool:
+    sites = _auth_sites()
+    if not sites:
+        # First configuration is deliberately password-free. Authentication is
+        # enabled automatically after the first successful ZoneMinder sync.
+        return True
+
     auth = request.authorization
-    expected_user = os.getenv("ZMWALL_ADMIN_USER", "admin")
-    password_hash = os.getenv("ZMWALL_ADMIN_PASSWORD_HASH", "")
-    return bool(auth and hmac.compare_digest(auth.username, expected_user) and password_hash and check_password_hash(password_hash, auth.password))
+    if not auth or not auth.username or auth.password is None:
+        return False
+
+    # If several independent ZoneMinder installations are configured, a valid
+    # account on any successfully synchronized site grants access to ZM Wall.
+    return any(
+        _zone_minder_login(site["base_url"], bool(site["verify_tls"]), auth.username, auth.password)
+        for site in sites
+    )
 
 
 def login_required(fn):
     @wraps(fn)
     def wrapped(*args, **kwargs):
         if not authorized():
-            return Response("Anmeldung erforderlich", 401, {"WWW-Authenticate": 'Basic realm="ZM Wall"'})
+            return Response(
+                "Anmeldung mit einem gültigen ZoneMinder-Benutzer erforderlich",
+                401,
+                {"WWW-Authenticate": 'Basic realm="ZoneMinder"'},
+            )
         return fn(*args, **kwargs)
     return wrapped
 
