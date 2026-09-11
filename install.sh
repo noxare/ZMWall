@@ -37,7 +37,10 @@ install -m 0644 "$APP_DIR/deploy/zmwall-cert-renew.service" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/zmwall-cert-renew.timer" /etc/systemd/system/zmwall-cert-renew.timer
 install -m 0644 "$APP_DIR/deploy/nginx.conf" /etc/nginx/sites-available/zmwall
 if [ -e /etc/nginx/sites-enabled/default ] || [ -L /etc/nginx/sites-enabled/default ]; then
-  mv /etc/nginx/sites-enabled/default /etc/nginx/sites-enabled/default.disabled-by-zmwall
+  unlink /etc/nginx/sites-enabled/default
+fi
+if [ -e /etc/nginx/sites-enabled/default.disabled-by-zmwall ] || [ -L /etc/nginx/sites-enabled/default.disabled-by-zmwall ]; then
+  unlink /etc/nginx/sites-enabled/default.disabled-by-zmwall
 fi
 ln -sfn /etc/nginx/sites-available/zmwall /etc/nginx/sites-enabled/zmwall
 /usr/local/sbin/zmwall-renew-cert
