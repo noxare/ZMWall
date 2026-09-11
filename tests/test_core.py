@@ -212,3 +212,54 @@ def test_rotation_keeps_old_player_until_preload_has_video(monkeypatch):
     manager.reconcile()
     assert manager.players["1:0"] is preloaded
     assert old_process.terminated
+
+
+def test_preload_must_render_frames_stably_before_it_is_ready(monkeypatch):
+    class FakeProcess:
+        def poll(self):
+            return None
+
+    manager = core.PlayerManager("unused.db")
+    player = core.Player("next", FakeProcess(), "/tmp/not-created-next.sock")
+    now = [10.0]
+    monkeypatch.setattr(core.time, "monotonic", lambda: now[0])
+
+    def fake_ipc(_player, command):
+        if command[-1] == "video-params":
+            return {"error": "success", "data": {"w": 1920, "h": 1080}}
+        return {"error": "success", "data": {"picture-type": "P"}}
+
+    monkeypatch.setattr(manager, "_ipc", fake_ipc)
+
+    assert not manager._ready(player)
+    now[0] += core.PRELOAD_STABLE_SECONDS - 0.01
+    assert not manager._ready(player)
+    now[0] += 0.02
+    assert manager._ready(player)
+
+
+def test_missing_rendered_frame_resets_preload_warmup(monkeypatch):
+    class FakeProcess:
+        def poll(self):
+            return None
+
+    manager = core.PlayerManager("unused.db")
+    player = core.Player("next", FakeProcess(), "/tmp/not-created-next.sock")
+    now = [10.0]
+    frame_available = [True]
+    monkeypatch.setattr(core.time, "monotonic", lambda: now[0])
+
+    def fake_ipc(_player, command):
+        if command[-1] == "video-params":
+            return {"error": "success", "data": {"w": 1920, "h": 1080}}
+        if frame_available[0]:
+            return {"error": "success", "data": {"picture-type": "P"}}
+        return {"error": "property unavailable"}
+
+    monkeypatch.setattr(manager, "_ipc", fake_ipc)
+
+    assert not manager._ready(player)
+    frame_available[0] = False
+    now[0] += core.PRELOAD_STABLE_SECONDS
+    assert not manager._ready(player)
+    assert player.ready_since is None

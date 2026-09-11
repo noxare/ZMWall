@@ -17,6 +17,9 @@ from urllib.parse import quote, urlparse
 import requests
 
 
+PRELOAD_STABLE_SECONDS = 0.75
+
+
 SCHEMA = """
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS sites (
@@ -317,6 +320,7 @@ class Player:
     signature: str
     process: subprocess.Popen
     ipc_path: str
+    ready_since: float | None = None
 
 
 class PlayerManager:
@@ -465,14 +469,27 @@ class PlayerManager:
             return None
 
     def _ready(self, player: Player) -> bool:
-        response = self._ipc(player, ["get_property", "video-params"])
-        return bool(
-            response
-            and response.get("error") == "success"
-            and isinstance(response.get("data"), dict)
-            and response["data"].get("w")
-            and response["data"].get("h")
+        video_params = self._ipc(player, ["get_property", "video-params"])
+        frame_info = self._ipc(player, ["get_property", "video-frame-info"])
+        has_video = bool(
+            video_params
+            and video_params.get("error") == "success"
+            and isinstance(video_params.get("data"), dict)
+            and video_params["data"].get("w")
+            and video_params["data"].get("h")
+            and frame_info
+            and frame_info.get("error") == "success"
+            and isinstance(frame_info.get("data"), dict)
         )
+        if not has_video:
+            player.ready_since = None
+            return False
+
+        now = time.monotonic()
+        if player.ready_since is None:
+            player.ready_since = now
+            return False
+        return now - player.ready_since >= PRELOAD_STABLE_SECONDS
 
     def _promote(self, key: str, player: Player) -> None:
         old = self.players.get(key)
@@ -558,9 +575,14 @@ class PlayerManager:
                     if preload:
                         self.preloads[key] = preload
 
+                # Probe the upcoming stream throughout the current interval,
+                # rather than only at the rotation boundary. This lets it
+                # decode and render stable frames well before it is raised.
+                if preload:
+                    self._ready(preload)
+
     def run(self) -> None:
         while not self.stop_event.is_set():
             self.reconcile()
             self.reload_event.wait(1)
             self.reload_event.clear()
-
