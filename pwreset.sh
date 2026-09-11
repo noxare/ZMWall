@@ -44,6 +44,7 @@ PASSWORD_HASH=$("$APP_DIR/.venv/bin/python" -c 'import sys; from werkzeug.securi
 unset ADMIN_PASSWORD ADMIN_PASSWORD_CONFIRM
 
 "$APP_DIR/.venv/bin/python" - "$ENV_FILE" "$PASSWORD_HASH" <<'PY'
+import shlex
 import sys
 from pathlib import Path
 
@@ -56,13 +57,13 @@ updated = False
 out = []
 for line in lines:
     if line.startswith(key):
-        out.append(key + password_hash)
+        out.append(key + shlex.quote(password_hash))
         updated = True
     else:
         out.append(line)
 
 if not updated:
-    out.append(key + password_hash)
+    out.append(key + shlex.quote(password_hash))
 
 env_file.write_text("\n".join(out) + "\n")
 PY
