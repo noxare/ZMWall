@@ -31,7 +31,7 @@ def test_unresolvable_hostname_uses_server_ip(monkeypatch):
         "rtsp_host_override": None,
         "zm_server_hostname": "zm-node-2.internal",
         "rtsp_host": "zm-node-2.internal",
-        "ip_override": "172.24.0.128",
-        "resolved_ip": "172.24.0.127",
+        "ip_override": "192.0.2.10",
+        "resolved_ip": "192.0.2.11",
     }
-    assert choose_rtsp_host(camera) == "172.24.0.128"
+    assert choose_rtsp_host(camera) == "192.0.2.10"

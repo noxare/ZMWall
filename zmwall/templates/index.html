@@ -67,7 +67,7 @@
         {% for server in zm_servers if server.site_id == site.id %}
           <form method="post" action="{{ url_for('update_zm_server', site_id=site.id, server_id=server.server_id) }}" class="server-row">
             <div><strong>{{ server.name }}</strong><small>ID {{ server.server_id }} · {{ server.hostname }} · zuletzt aufgelöst: {{ server.resolved_ip or 'nicht auflösbar' }}</small></div>
-            <label>Fallback-IP<input name="ip_override" value="{{ server.ip_override or '' }}" placeholder="{{ server.resolved_ip or 'z. B. 172.24.0.128' }}"></label>
+            <label>Fallback-IP<input name="ip_override" value="{{ server.ip_override or '' }}" placeholder="{{ server.resolved_ip or 'z. B. 192.0.2.10' }}"></label>
             <button class="secondary">Speichern</button>
           </form>
         {% endfor %}
