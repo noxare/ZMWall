@@ -13,7 +13,8 @@ ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigu
 - erneute API-Synchronisierung alle fünf Minuten und manuell per Schaltfläche
 - anpassbare RTSP-Port-, Streamname- und URL-Regeln
 - abweichender RTSP-Host oder Streamname pro Kamera möglich
-- kennwortgeschützte Weboberfläche
+- Erstkonfiguration der Weboberfläche ohne lokales Kennwort
+- nach erfolgreicher ZoneMinder-Erkennung Anmeldung direkt gegen ZoneMinder
 - direkter RTSP-Abruf mit `mpv`, Hardware-Decoding und TCP-Transport
 
 ## Voraussetzungen
@@ -36,19 +37,25 @@ sudo bash install.sh
 sudo reboot
 ```
 
-Der Installer richtet Xorg, Openbox, LightDM, `mpv`, den lokalen Benutzer `zmwall` und die Python-Umgebung ein. Er fragt nach Benutzername und Passwort für die ZM-Wall-Weboberfläche. Danach ist die Verwaltung unter folgender Adresse erreichbar:
+Der Installer richtet Xorg, Openbox, LightDM, `mpv`, den lokalen Benutzer `zmwall` und die Python-Umgebung ein. Ein separates Kennwort für die ZM-Wall-Weboberfläche wird nicht mehr angelegt. Danach ist die Verwaltung unter folgender Adresse erreichbar:
 
 ```text
 http://IP-DES-ANZEIGERECHNERS:8080
 ```
 
-## Erste Einrichtung
+## Erste Einrichtung und Anmeldung
+
+Solange noch keine ZoneMinder-Verbindung erfolgreich synchronisiert wurde, ist die Weboberfläche absichtlich ohne Anmeldung erreichbar. Dadurch kann die erste ZoneMinder-Verbindung eingerichtet und bei falscher URL, TLS-Problemen oder fehlerhaften Zugangsdaten korrigiert werden.
 
 1. In der Weboberfläche eine ZoneMinder-Verbindung hinzufügen. Als URL beispielsweise `https://zm.example/zm` eintragen, also den Pfad vor `/api`.
-2. RTSP-Port festlegen. Der Vorgabewert ist `20000`.
-3. Die Streamname-Regel festlegen. `{id}` ergibt beispielsweise für Monitor 100 den Streamnamen `100`.
-4. Einen erkannten Display-Ausgang hinzufügen, Zeilen und Spalten wählen und die Kameras auf die Kacheln verteilen.
-5. **Layout übernehmen** klicken. Die Anzeige wird ohne Neustart neu aufgebaut.
+2. ZoneMinder-Benutzername und Kennwort für die API-/RTSP-Verbindung eintragen.
+3. RTSP-Port festlegen. Der Vorgabewert ist `20000`.
+4. Die Streamname-Regel festlegen. `{id}` ergibt beispielsweise für Monitor 100 den Streamnamen `100`.
+5. Nach dem ersten erfolgreichen Sync wird die Weboberfläche automatisch geschützt. Der Browser verlangt dann Benutzername und Kennwort; diese werden direkt gegen `/api/host/login.json` des erfolgreich erkannten ZoneMinder-Servers geprüft.
+6. Einen erkannten Display-Ausgang hinzufügen, Zeilen und Spalten wählen und die Kameras auf die Kacheln verteilen.
+7. **Layout übernehmen** klicken. Die Anzeige wird ohne Neustart neu aufgebaut.
+
+Bei mehreren erfolgreich synchronisierten ZoneMinder-Verbindungen genügt ein gültiger Benutzer auf einer dieser Installationen für den Zugriff auf ZM Wall.
 
 Die mitgelieferte RTSP-Vorlage entspricht:
 
@@ -72,8 +79,8 @@ Die wichtigsten Dateien:
 
 ```text
 /opt/zmwall/                       Programm
-/etc/zmwall.env                    Web- und Laufzeitkonfiguration
-/var/lib/zmwall/zmwall.db          Kamera- und Grid-Konfiguration
+/etc/zmwall.env                    Laufzeitkonfiguration
+/var/lib/zmwall/zmwall.db          ZoneMinder-, Kamera- und Grid-Konfiguration
 /var/lib/zmwall/zmwall.log         Programm- und Player-Log
 /etc/lightdm/lightdm.conf.d/50-zmwall.conf
 ```
@@ -100,8 +107,10 @@ Bei selbst signierten HTTPS-Zertifikaten kann die TLS-Prüfung je ZoneMinder-Ver
 
 ## Sicherheit
 
-- Die Verwaltungsoberfläche sollte nur im vertrauenswürdigen LAN oder Verwaltungs-VLAN erreichbar sein. Die enthaltene HTTP-Basisauthentifizierung ersetzt kein HTTPS bei Zugriff über unsichere Netze.
-- ZoneMinder-Zugangsdaten werden lokal in `/var/lib/zmwall/zmwall.db` gespeichert. Verzeichnis und Datei sind ausschließlich für den Dienstbenutzer zugänglich.
+- Die Erstkonfiguration ist nur solange offen, bis mindestens eine ZoneMinder-Verbindung erfolgreich synchronisiert wurde. Deshalb sollte ZM Wall trotzdem nur im vertrauenswürdigen LAN oder Verwaltungs-VLAN betrieben werden.
+- Danach wird jeder Zugriff per HTTP-Basisauthentifizierung abgefragt und das eingegebene Benutzername/Kennwort-Paar direkt gegen ZoneMinder geprüft. Es existiert kein separates lokales Web-Kennwort.
+- HTTP-Basisauthentifizierung ersetzt kein HTTPS bei Zugriff über unsichere Netze.
+- ZoneMinder-Zugangsdaten für API und RTSP werden lokal in `/var/lib/zmwall/zmwall.db` gespeichert. Verzeichnis und Datei sind ausschließlich für den Dienstbenutzer zugänglich.
 - Die kennworthaltige RTSP-URL wird `mpv` über die Standardeingabe übergeben und steht daher nicht in dessen Prozessargumenten.
 - Empfohlen ist ein eigener ZoneMinder-Benutzer, der nur die anzuzeigenden Kameras lesen darf.
 
