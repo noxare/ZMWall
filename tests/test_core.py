@@ -2,7 +2,7 @@ import tempfile
 from pathlib import Path
 
 import zmwall.core as core
-from zmwall.core import choose_rtsp_host, connect, init_db, render_rtsp
+from zmwall.core import choose_rtsp_host, connect, format_geometry, init_db, render_rtsp, tile_geometry
 
 
 def test_schema_and_rtsp_template():
@@ -35,3 +35,15 @@ def test_unresolvable_hostname_uses_server_ip(monkeypatch):
         "resolved_ip": "192.0.2.11",
     }
     assert choose_rtsp_host(camera) == "192.0.2.10"
+
+
+def test_grid_cells_cover_complete_output_without_overlap():
+    output = {"x": 1920, "y": 0, "width": 1921, "height": 1081}
+    cells = [tile_geometry(output, row, col, 2, 3) for row in range(2) for col in range(3)]
+    assert cells[0] == (1920, 0, 640, 540)
+    assert cells[2][0] + cells[2][2] == 3841
+    assert cells[3][1] + cells[3][3] == 1081
+
+
+def test_geometry_uses_valid_signs_for_monitors_left_of_primary():
+    assert format_geometry(640, 540, -1920, 0) == "640x540-1920+0"

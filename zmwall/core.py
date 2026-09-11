@@ -203,11 +203,29 @@ def detect_outputs() -> list[dict[str, int | str]]:
     result = subprocess.run(["xrandr", "--query"], text=True, capture_output=True, env=env, timeout=5)
     outputs = []
     for line in result.stdout.splitlines():
-        match = re.match(r"^(\S+) connected(?: primary)? (\d+)x(\d+)\+(\d+)\+(\d+)", line)
+        match = re.match(r"^(\S+) connected(?: primary)? (\d+)x(\d+)([+-]\d+)([+-]\d+)", line)
         if match:
             name, width, height, x, y = match.groups()
             outputs.append({"name": name, "width": int(width), "height": int(height), "x": int(x), "y": int(y)})
     return outputs
+
+
+def tile_geometry(output: dict[str, int | str], row: int, col: int, rows: int, cols: int) -> tuple[int, int, int, int]:
+    """Return an exact grid cell, distributing remainder pixels at the edges."""
+    output_x = int(output["x"])
+    output_y = int(output["y"])
+    output_width = int(output["width"])
+    output_height = int(output["height"])
+    left = output_x + (output_width * col) // cols
+    right = output_x + (output_width * (col + 1)) // cols
+    top = output_y + (output_height * row) // rows
+    bottom = output_y + (output_height * (row + 1)) // rows
+    return left, top, right - left, bottom - top
+
+
+def format_geometry(width: int, height: int, x: int, y: int) -> str:
+    """Return an X11 geometry string, including correct signs for negative offsets."""
+    return f"{width}x{height}{x:+d}{y:+d}"
 
 
 def render_rtsp(site: sqlite3.Row, camera: sqlite3.Row, resolution_cache: dict[str, str | None] | None = None) -> str:
@@ -243,6 +261,26 @@ class PlayerManager:
         for player in self.players.values():
             player.process.terminate()
 
+    @staticmethod
+    def place_window(process: subprocess.Popen, x: int, y: int, width: int, height: int, env: dict[str, str]) -> None:
+        """Enforce the X11 window rectangle if the window manager adjusts mpv's geometry."""
+        deadline = time.monotonic() + 5
+        while process.poll() is None and time.monotonic() < deadline:
+            try:
+                result = subprocess.run(
+                    ["xdotool", "search", "--onlyvisible", "--pid", str(process.pid)],
+                    text=True, capture_output=True, env=env, timeout=1,
+                )
+                window_ids = [item for item in result.stdout.splitlines() if item.isdigit()]
+                if window_ids:
+                    window_id = window_ids[-1]
+                    subprocess.run(["xdotool", "windowmove", window_id, str(x), str(y)], env=env, timeout=1)
+                    subprocess.run(["xdotool", "windowsize", window_id, str(width), str(height)], env=env, timeout=1)
+                    return
+            except (FileNotFoundError, subprocess.SubprocessError):
+                return
+            time.sleep(0.1)
+
     def desired(self) -> dict[str, tuple[str, list[str], str]]:
         outputs = {str(item["name"]): item for item in detect_outputs()}
         desired: dict[str, tuple[str, list[str], str]] = {}
@@ -268,16 +306,19 @@ class PlayerManager:
                     row = tile["position"] // screen["cols"]
                     if row >= screen["rows"]:
                         continue
-                    width = int(output["width"]) // screen["cols"]
-                    height = int(output["height"]) // screen["rows"]
-                    x = int(output["x"]) + col * width
-                    y = int(output["y"]) + row * height
+                    x, y, width, height = tile_geometry(
+                        output, row, col, screen["rows"], screen["cols"]
+                    )
                     url = render_rtsp(tile, tile, resolution_cache)
-                    signature = f"{url}|{width}x{height}+{x}+{y}"
+                    geometry = format_geometry(width, height, x, y)
+                    signature = f"{url}|{geometry}"
                     command = [
                         "mpv", "--no-config", "--no-audio", "--no-border", "--ontop", "--keep-open=no",
+                        "--force-window=immediate", "--force-window-position", "--auto-window-resize=no",
+                        "--keepaspect=no", "--keepaspect-window=no", "--panscan=0", "--video-zoom=0",
+                        "--no-osc", "--cursor-autohide=always",
                         "--hwdec=auto-safe", "--profile=low-latency", "--demuxer-lavf-o=rtsp_transport=tcp",
-                        f"--geometry={width}x{height}+{x}+{y}", "--really-quiet", "--playlist=-",
+                        f"--geometry={geometry}", "--really-quiet", "--playlist=-",
                     ]
                     desired[f"{screen['id']}:{tile['position']}"] = (signature, command, url)
         return desired
@@ -301,6 +342,14 @@ class PlayerManager:
                     process.stdin.write(url + "\n")
                     process.stdin.close()
                 self.players[key] = Player(signature, process)
+                geometry = signature.rsplit("|", 1)[1]
+                match = re.fullmatch(r"(\d+)x(\d+)([+-]\d+)([+-]\d+)", geometry)
+                if match:
+                    width, height, x, y = map(int, match.groups())
+                    threading.Thread(
+                        target=self.place_window,
+                        args=(process, x, y, width, height, env), daemon=True,
+                    ).start()
 
     def run(self) -> None:
         while not self.stop_event.is_set():
