@@ -263,23 +263,36 @@ class PlayerManager:
 
     @staticmethod
     def place_window(process: subprocess.Popen, x: int, y: int, width: int, height: int, env: dict[str, str]) -> None:
-        """Enforce the X11 window rectangle if the window manager adjusts mpv's geometry."""
+        """Enforce the X11 rectangle while mpv and the window manager finish startup."""
         deadline = time.monotonic() + 5
+        window_id: str | None = None
         while process.poll() is None and time.monotonic() < deadline:
             try:
-                result = subprocess.run(
-                    ["xdotool", "search", "--onlyvisible", "--pid", str(process.pid)],
-                    text=True, capture_output=True, env=env, timeout=1,
-                )
-                window_ids = [item for item in result.stdout.splitlines() if item.isdigit()]
-                if window_ids:
+                if window_id is None:
+                    result = subprocess.run(
+                        ["xdotool", "search", "--onlyvisible", "--pid", str(process.pid)],
+                        text=True, capture_output=True, env=env, timeout=1,
+                    )
+                    window_ids = [item for item in result.stdout.splitlines() if item.isdigit()]
+                    if not window_ids:
+                        time.sleep(0.1)
+                        continue
                     window_id = window_ids[-1]
-                    subprocess.run(["xdotool", "windowmove", window_id, str(x), str(y)], env=env, timeout=1)
-                    subprocess.run(["xdotool", "windowsize", window_id, str(width), str(height)], env=env, timeout=1)
-                    return
+
+                # Resizing can cause Openbox to move a window back onto the first
+                # output. Move last and repeat while the RTSP video initializes,
+                # because mpv may update its X11 hints once the stream is decoded.
+                subprocess.run(
+                    ["xdotool", "windowsize", "--sync", window_id, str(width), str(height)],
+                    env=env, timeout=1,
+                )
+                subprocess.run(
+                    ["xdotool", "windowmove", "--sync", window_id, str(x), str(y)],
+                    env=env, timeout=1,
+                )
             except (FileNotFoundError, subprocess.SubprocessError):
                 return
-            time.sleep(0.1)
+            time.sleep(0.25)
 
     def desired(self) -> dict[str, tuple[str, list[str], str]]:
         outputs = {str(item["name"]): item for item in detect_outputs()}
