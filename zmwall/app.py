@@ -230,7 +230,7 @@ def main() -> None:
     from waitress import serve
     threading.Thread(target=manager.run, daemon=True).start()
     threading.Thread(target=periodic_sync, daemon=True).start()
-    serve(app, host=os.getenv("ZMWALL_BIND", "0.0.0.0"), port=int(os.getenv("ZMWALL_PORT", "8080")), threads=8)
+    serve(app, host=os.getenv("ZMWALL_BIND", "127.0.0.1"), port=int(os.getenv("ZMWALL_PORT", "8080")), threads=8)
 
 
 if __name__ == "__main__":

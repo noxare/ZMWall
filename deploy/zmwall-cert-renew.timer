@@ -1,0 +1,10 @@
+[Unit]
+Description=Check the ZMWall HTTPS certificate daily
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target

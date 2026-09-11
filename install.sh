@@ -12,7 +12,7 @@ ENV_FILE=/etc/zmwall.env
 SOURCE_DIR=$(cd "$(dirname "$0")" && pwd)
 
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y python3-venv mpv xorg openbox lightdm x11-xserver-utils unclutter openssl
+DEBIAN_FRONTEND=noninteractive apt-get install -y python3-venv mpv xorg openbox lightdm x11-xserver-utils unclutter openssl nginx
 
 id "$APP_USER" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash "$APP_USER"
 install -d -m 0755 "$APP_DIR"
@@ -25,12 +25,27 @@ SECRET_KEY=$(openssl rand -hex 32)
 install -d -o "$APP_USER" -g "$APP_USER" -m 0700 /var/lib/zmwall
 install -o "$APP_USER" -g "$APP_USER" -m 0600 /dev/null "$ENV_FILE"
 {
-  printf 'ZMWALL_BIND=%q\n' "0.0.0.0"
+  printf 'ZMWALL_BIND=%q\n' "127.0.0.1"
   printf 'ZMWALL_PORT=%q\n' "8080"
   printf 'ZMWALL_SECRET_KEY=%q\n' "$SECRET_KEY"
   printf 'ZMWALL_DB=%q\n' "/var/lib/zmwall/zmwall.db"
   printf 'ZMWALL_DISPLAY=%q\n' ":0"
 } > "$ENV_FILE"
+
+install -m 0755 "$APP_DIR/renew-cert.sh" /usr/local/sbin/zmwall-renew-cert
+install -m 0644 "$APP_DIR/deploy/zmwall-cert-renew.service" /etc/systemd/system/zmwall-cert-renew.service
+install -m 0644 "$APP_DIR/deploy/zmwall-cert-renew.timer" /etc/systemd/system/zmwall-cert-renew.timer
+install -m 0644 "$APP_DIR/deploy/nginx.conf" /etc/nginx/sites-available/zmwall
+if [ -e /etc/nginx/sites-enabled/default ] || [ -L /etc/nginx/sites-enabled/default ]; then
+  mv /etc/nginx/sites-enabled/default /etc/nginx/sites-enabled/default.disabled-by-zmwall
+fi
+ln -sfn /etc/nginx/sites-available/zmwall /etc/nginx/sites-enabled/zmwall
+/usr/local/sbin/zmwall-renew-cert
+nginx -t
+systemctl daemon-reload
+systemctl enable nginx
+systemctl restart nginx
+systemctl enable --now zmwall-cert-renew.timer
 
 install -d -m 0755 /etc/lightdm/lightdm.conf.d
 {
@@ -63,6 +78,6 @@ chown "$APP_USER:$APP_USER" "$ENV_FILE"
 chmod 0600 "$ENV_FILE"
 systemctl enable lightdm
 
-echo "Installation abgeschlossen. Nach dem Neustart: http://DIE-IP-DIESES-RECHNERS:8080"
+echo "Installation abgeschlossen. Nach dem Neustart: https://DIE-IP-DIESES-RECHNERS"
 echo "Die Erstkonfiguration ist ohne Web-Login möglich. Nach dem ersten erfolgreichen ZoneMinder-Sync werden gültige ZoneMinder-Zugangsdaten für die Weboberfläche verlangt."
-echo "Die Datei $ENV_FILE enthält Geheimnisse und ist nur für den Dienstbenutzer lesbar."
+echo "Die lokale CA kann unter https://DIE-IP-DIESES-RECHNERS/zmwall-local-ca.crt heruntergeladen werden."\necho "Die Datei $ENV_FILE und die privaten TLS-Schlüssel sind lokal geschützt."

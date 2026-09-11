@@ -37,11 +37,25 @@ sudo bash install.sh
 sudo reboot
 ```
 
-Der Installer richtet Xorg, Openbox, LightDM, `mpv`, den lokalen Benutzer `zmwall` und die Python-Umgebung ein. Ein separates Kennwort für die ZM-Wall-Weboberfläche wird nicht mehr angelegt. Danach ist die Verwaltung unter folgender Adresse erreichbar:
+Der Installer richtet Xorg, Openbox, LightDM, `mpv`, Nginx, lokales HTTPS, den Benutzer `zmwall` und die Python-Umgebung ein. Ein separates Kennwort für die ZM-Wall-Weboberfläche wird nicht mehr angelegt. Danach ist die Verwaltung unter folgender Adresse erreichbar:
 
 ```text
-http://IP-DES-ANZEIGERECHNERS:8080
+https://IP-DES-ANZEIGERECHNERS
 ```
+
+## Lokales HTTPS
+
+Nginx stellt die Weboberfläche auf Port 443 bereit und leitet Port 80 automatisch auf HTTPS um. Der Python-Webdienst ist nur lokal unter `127.0.0.1:8080` erreichbar.
+
+Bei der Installation wird eine lokale ZMWall-CA mit zehn Jahren Laufzeit angelegt. Das davon signierte Serverzertifikat ist 90 Tage gültig. Der systemd-Timer `zmwall-cert-renew.timer` prüft es täglich, erneuert es 30 Tage vor Ablauf und berücksichtigt auch geänderte lokale IPv4-Adressen.
+
+Die öffentliche CA kann nach der Installation hier heruntergeladen und einmalig auf den Verwaltungsgeräten als vertrauenswürdig eingerichtet werden:
+
+```text
+https://IP-DES-ANZEIGERECHNERS/zmwall-local-ca.crt
+```
+
+Der private CA-Schlüssel liegt ausschließlich unter `/etc/zmwall/tls/zmwall-local-ca.key` und darf den Anzeigerechner nicht verlassen.
 
 ## Erste Einrichtung und Anmeldung
 
@@ -109,7 +123,7 @@ Bei selbst signierten HTTPS-Zertifikaten kann die TLS-Prüfung je ZoneMinder-Ver
 
 - Die Erstkonfiguration ist nur solange offen, bis mindestens eine ZoneMinder-Verbindung erfolgreich synchronisiert wurde. Deshalb sollte ZM Wall trotzdem nur im vertrauenswürdigen LAN oder Verwaltungs-VLAN betrieben werden.
 - Danach wird jeder Zugriff per HTTP-Basisauthentifizierung abgefragt und das eingegebene Benutzername/Kennwort-Paar direkt gegen ZoneMinder geprüft. Es existiert kein separates lokales Web-Kennwort.
-- HTTP-Basisauthentifizierung ersetzt kein HTTPS bei Zugriff über unsichere Netze.
+- Die HTTP-Basisauthentifizierung wird ausschließlich innerhalb der lokalen HTTPS-Verbindung übertragen.
 - ZoneMinder-Zugangsdaten für API und RTSP werden lokal in `/var/lib/zmwall/zmwall.db` gespeichert. Verzeichnis und Datei sind ausschließlich für den Dienstbenutzer zugänglich.
 - Die kennworthaltige RTSP-URL wird `mpv` über die Standardeingabe übergeben und steht daher nicht in dessen Prozessargumenten.
 - Empfohlen ist ein eigener ZoneMinder-Benutzer, der nur die anzuzeigenden Kameras lesen darf.
