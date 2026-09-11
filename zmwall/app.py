@@ -8,7 +8,8 @@ from functools import wraps
 import requests
 from flask import Flask, Response, flash, redirect, render_template, request, url_for
 
-from .core import PlayerManager, api_url, connect, detect_outputs, init_db, sync_site
+from . import __version__
+from .core import PlayerManager, api_url, connect, detect_outputs, init_db, parse_camera_keys, sync_site
 
 
 DB_PATH = os.getenv("ZMWALL_DB", "/var/lib/zmwall/zmwall.db")
@@ -93,11 +94,22 @@ def index():
             "SELECT * FROM cameras WHERE rtsp_enabled=1 ORDER BY name"
         ).fetchall()
         screens = db.execute("SELECT * FROM screens ORDER BY output_name").fetchall()
-        assignments = {f"{r['screen_id']}:{r['position']}": r["camera_key"] or "" for r in db.execute("SELECT * FROM tiles")}
+        assignment_rows = db.execute(
+            """SELECT tc.screen_id,tc.position,tc.camera_key,tc.sort_order,c.name,c.server_name
+               FROM tile_cameras tc JOIN cameras c ON c.camera_key=tc.camera_key
+               WHERE c.rtsp_enabled=1 AND c.enabled=1
+               ORDER BY tc.screen_id,tc.position,tc.sort_order"""
+        ).fetchall()
+        assignments = {}
+        assigned_camera_keys = set()
+        for row in assignment_rows:
+            assignments.setdefault(f"{row['screen_id']}:{row['position']}", []).append(row)
+            assigned_camera_keys.add(row["camera_key"])
+        available_cameras = [camera for camera in selectable_cameras if camera["camera_key"] not in assigned_camera_keys]
     return render_template(
         "index.html", sites=sites, zm_servers=zm_servers, cameras=cameras,
-        selectable_cameras=selectable_cameras, screens=screens, assignments=assignments,
-        outputs=detect_outputs(),
+        selectable_cameras=selectable_cameras, available_cameras=available_cameras,
+        screens=screens, assignments=assignments, outputs=detect_outputs(), version=__version__,
     )
 
 
@@ -179,21 +191,83 @@ def save_screen():
     output_name = request.form["output_name"]
     rows = max(1, min(8, int(request.form["rows"])))
     cols = max(1, min(8, int(request.form["cols"])))
+    rotation_seconds = max(5, min(86400, int(request.form.get("rotation_seconds", 30))))
     with connect(DB_PATH) as db:
         existing = db.execute("SELECT id FROM screens WHERE output_name=?", (output_name,)).fetchone()
         if existing:
             screen_id = existing["id"]
-            db.execute("UPDATE screens SET rows=?,cols=? WHERE id=?", (rows, cols, screen_id))
+            db.execute(
+                "UPDATE screens SET rows=?,cols=?,rotation_seconds=? WHERE id=?",
+                (rows, cols, rotation_seconds, screen_id),
+            )
         else:
-            screen_id = db.execute("INSERT INTO screens(output_name,rows,cols) VALUES(?,?,?)", (output_name, rows, cols)).lastrowid
+            screen_id = db.execute(
+                "INSERT INTO screens(output_name,rows,cols,rotation_seconds) VALUES(?,?,?,?)",
+                (output_name, rows, cols, rotation_seconds),
+            ).lastrowid
         db.execute("DELETE FROM tiles WHERE screen_id=? AND position>=?", (screen_id, rows * cols))
-        for position in range(rows * cols):
-            key = request.form.get(f"tile_{position}") or None
-            db.execute("""INSERT INTO tiles(screen_id,position,camera_key) VALUES(?,?,?)
-                          ON CONFLICT(screen_id,position) DO UPDATE SET camera_key=excluded.camera_key""",
-                       (screen_id, position, key))
+        db.execute("DELETE FROM tile_cameras WHERE screen_id=? AND position>=?", (screen_id, rows * cols))
     manager.request_reload()
     flash("Monitorlayout gespeichert.", "ok")
+    return redirect(url_for("index"))
+
+
+@app.post("/layouts")
+@login_required
+def save_layouts():
+    """Save all visible displays atomically, including camera order per tile."""
+    try:
+        screen_ids = [int(value) for value in request.form.getlist("screen_id")]
+    except ValueError:
+        flash("Ungültige Display-ID.", "error")
+        return redirect(url_for("index"))
+
+    used: set[str] = set()
+    with connect(DB_PATH) as db:
+        valid_cameras = {
+            row["camera_key"]
+            for row in db.execute("SELECT camera_key FROM cameras WHERE rtsp_enabled=1 AND enabled=1")
+        }
+        screens = {
+            row["id"]: row
+            for row in db.execute(
+                f"SELECT * FROM screens WHERE id IN ({','.join('?' for _ in screen_ids)})",
+                screen_ids,
+            )
+        } if screen_ids else {}
+
+        for screen_id in screen_ids:
+            screen = screens.get(screen_id)
+            if not screen:
+                continue
+            rows = max(1, min(8, int(request.form.get(f"rows_{screen_id}", screen["rows"]))))
+            cols = max(1, min(8, int(request.form.get(f"cols_{screen_id}", screen["cols"]))))
+            rotation_seconds = max(
+                5,
+                min(86400, int(request.form.get(f"rotation_seconds_{screen_id}", screen["rotation_seconds"]))),
+            )
+            db.execute(
+                "UPDATE screens SET rows=?,cols=?,rotation_seconds=? WHERE id=?",
+                (rows, cols, rotation_seconds, screen_id),
+            )
+            db.execute("DELETE FROM tile_cameras WHERE screen_id=?", (screen_id,))
+            db.execute("DELETE FROM tiles WHERE screen_id=?", (screen_id,))
+            for position in range(rows * cols):
+                keys = parse_camera_keys(request.form.get(f"tile_{screen_id}_{position}"))
+                accepted = [key for key in keys if key in valid_cameras and key not in used]
+                used.update(accepted)
+                db.execute(
+                    "INSERT INTO tiles(screen_id,position,camera_key) VALUES(?,?,?)",
+                    (screen_id, position, accepted[0] if accepted else None),
+                )
+                db.executemany(
+                    """INSERT INTO tile_cameras(screen_id,position,camera_key,sort_order)
+                       VALUES(?,?,?,?)""",
+                    [(screen_id, position, key, order) for order, key in enumerate(accepted)],
+                )
+
+    manager.request_reload()
+    flash("Alle Monitorlayouts wurden übernommen.", "ok")
     return redirect(url_for("index"))
 
 

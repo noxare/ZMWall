@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS screens (
   output_name TEXT NOT NULL UNIQUE,
   rows INTEGER NOT NULL DEFAULT 2,
   cols INTEGER NOT NULL DEFAULT 2,
+  rotation_seconds INTEGER NOT NULL DEFAULT 30,
   enabled INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS tiles (
@@ -71,6 +72,13 @@ CREATE TABLE IF NOT EXISTS tiles (
   position INTEGER NOT NULL,
   camera_key TEXT REFERENCES cameras(camera_key) ON DELETE SET NULL,
   PRIMARY KEY(screen_id, position)
+);
+CREATE TABLE IF NOT EXISTS tile_cameras (
+  screen_id INTEGER NOT NULL REFERENCES screens(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  camera_key TEXT NOT NULL UNIQUE REFERENCES cameras(camera_key) ON DELETE CASCADE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(screen_id, position, camera_key)
 );
 """
 
@@ -95,6 +103,45 @@ def init_db(db_path: str) -> None:
             db.execute("ALTER TABLE cameras ADD COLUMN rtsp_enabled INTEGER NOT NULL DEFAULT 1")
         if "rtsp_stream_name" not in columns:
             db.execute("ALTER TABLE cameras ADD COLUMN rtsp_stream_name TEXT")
+        screen_columns = {row["name"] for row in db.execute("PRAGMA table_info(screens)")}
+        if "rotation_seconds" not in screen_columns:
+            db.execute("ALTER TABLE screens ADD COLUMN rotation_seconds INTEGER NOT NULL DEFAULT 30")
+        # Upgrade old one-camera-per-tile layouts without losing assignments.
+        # UNIQUE(camera_key) intentionally keeps the first assignment if an old
+        # configuration used the same camera in several positions.
+        db.execute(
+            """INSERT OR IGNORE INTO tile_cameras(screen_id,position,camera_key,sort_order)
+               SELECT screen_id,position,camera_key,0 FROM tiles
+               WHERE camera_key IS NOT NULL
+               ORDER BY screen_id,position"""
+        )
+
+
+def parse_camera_keys(raw: str | None) -> list[str]:
+    """Parse a layout field while preserving order and removing duplicates."""
+    if not raw:
+        return []
+    try:
+        value = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        value = raw.split(",")
+    if not isinstance(value, list):
+        return []
+    result: list[str] = []
+    for item in value:
+        key = str(item).strip()
+        if key and key not in result:
+            result.append(key)
+    return result
+
+
+def rotation_index(count: int, interval_seconds: int, now: float | None = None) -> int:
+    """Return the active camera index for a rotating tile."""
+    if count <= 1:
+        return 0
+    interval = max(5, int(interval_seconds))
+    timestamp = time.monotonic() if now is None else now
+    return int(timestamp // interval) % count
 
 
 def api_url(base_url: str, suffix: str) -> str:
@@ -290,16 +337,19 @@ class PlayerManager:
                 if not output:
                     continue
                 tiles = db.execute(
-                    """SELECT t.position,c.*,s.rtsp_port,s.stream_template,s.url_template,s.username,s.password,
+                    """SELECT tc.position,tc.sort_order,c.*,s.rtsp_port,s.stream_template,s.url_template,s.username,s.password,
                               zs.hostname AS zm_server_hostname,zs.resolved_ip,zs.ip_override
-                       FROM tiles t LEFT JOIN cameras c ON c.camera_key=t.camera_key
+                       FROM tile_cameras tc JOIN cameras c ON c.camera_key=tc.camera_key
                        LEFT JOIN sites s ON s.id=c.site_id
                        LEFT JOIN zm_servers zs ON zs.site_id=c.site_id AND zs.server_id=c.server_id
-                       WHERE t.screen_id=? ORDER BY t.position""", (screen["id"],)
+                       WHERE tc.screen_id=? AND c.rtsp_enabled=1 AND c.enabled=1
+                       ORDER BY tc.position,tc.sort_order""", (screen["id"],)
                 ).fetchall()
+                positions: dict[int, list[sqlite3.Row]] = {}
                 for tile in tiles:
-                    if not tile["camera_key"]:
-                        continue
+                    positions.setdefault(int(tile["position"]), []).append(tile)
+                for position, cameras in positions.items():
+                    tile = cameras[rotation_index(len(cameras), screen["rotation_seconds"])]
                     col = tile["position"] % screen["cols"]
                     row = tile["position"] // screen["cols"]
                     if row >= screen["rows"]:
@@ -318,7 +368,8 @@ class PlayerManager:
                         f"--screen-name={screen['output_name']}",
                         "--keepaspect=no", "--keepaspect-window=no", "--panscan=0", "--video-zoom=0",
                         "--no-osc", "--cursor-autohide=always",
-                        "--hwdec=auto-safe", "--profile=low-latency", "--demuxer-lavf-o=rtsp_transport=tcp",
+                        "--hwdec=auto-safe", "--profile=low-latency",
+                        "--demuxer-lavf-o=rtsp_transport=tcp,rw_timeout=15000000",
                         f"--geometry={geometry}", "--really-quiet", "--playlist=-",
                     ]
                     if tile["position"] == (screen["rows"] * screen["cols"]) - 1:
@@ -346,14 +397,21 @@ class PlayerManager:
         env["DISPLAY"] = os.getenv("ZMWALL_DISPLAY", env.get("DISPLAY", ":0"))
         for key, (signature, command, url) in wanted.items():
             if key not in self.players:
-                process = subprocess.Popen(command, env=env, stdin=subprocess.PIPE, text=True)
-                if process.stdin:
-                    process.stdin.write(url + "\n")
-                    process.stdin.close()
-                self.players[key] = Player(signature, process)
+                try:
+                    process = subprocess.Popen(command, env=env, stdin=subprocess.PIPE, text=True)
+                    if process.stdin:
+                        process.stdin.write(url + "\n")
+                        process.stdin.close()
+                    self.players[key] = Player(signature, process)
+                except OSError:
+                    # The next reconciliation pass retries automatically.
+                    continue
 
     def run(self) -> None:
         while not self.stop_event.is_set():
             self.reconcile()
-            self.reload_event.wait(5)
+            # Short polling is needed both for failed-stream retries and camera
+            # rotation. A running player is left untouched until its signature
+            # changes or its process exits.
+            self.reload_event.wait(2)
             self.reload_event.clear()

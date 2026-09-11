@@ -5,40 +5,92 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ZM Wall</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script defer src="{{ url_for('static', filename='layout.js') }}"></script>
 </head>
 <body>
-<header><div><h1>ZM Wall</h1><p>ZoneMinder-RTSP-Videowand</p></div><span class="live">● Anzeige aktiv</span></header>
+<header>
+  <div><h1>ZM Wall</h1><p>ZoneMinder-RTSP-Videowand · {{ version }}</p></div>
+  <span class="live">● Anzeige aktiv</span>
+</header>
 <main>
   {% for category, message in get_flashed_messages(with_categories=true) %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}
 
   <section>
-    <div class="section-head"><div><h2>Anzeige</h2><p>Grid und Kamerabelegung je physischem Ausgang</p></div></div>
-    <div class="cards">
-    {% for screen in screens %}
-      <article class="card screen-card">
-        <form method="post" action="{{ url_for('save_screen') }}">
-          <div class="card-head"><h3>{{ screen.output_name }}</h3><span>{{ screen.rows }} × {{ screen.cols }}</span></div>
-          <input type="hidden" name="output_name" value="{{ screen.output_name }}">
-          <div class="row compact"><label>Zeilen<input type="number" name="rows" min="1" max="8" value="{{ screen.rows }}"></label><label>Spalten<input type="number" name="cols" min="1" max="8" value="{{ screen.cols }}"></label></div>
-          <div class="grid" style="--cols:{{ screen.cols }}">
-          {% for position in range(screen.rows * screen.cols) %}
-            <label class="tile"><span>{{ position + 1 }}</span><select name="tile_{{ position }}">
-              <option value="">Leer</option>
-              {% for camera in selectable_cameras %}<option value="{{ camera.camera_key }}" {% if assignments.get(screen.id|string + ':' + position|string) == camera.camera_key %}selected{% endif %}>{{ camera.name }}</option>{% endfor %}
-            </select></label>
-          {% endfor %}
-          </div>
-          <button>Layout übernehmen</button>
-        </form>
-        <form method="post" action="{{ url_for('delete_screen', screen_id=screen.id) }}" onsubmit="return confirm('Anzeige wirklich entfernen?')"><button class="link danger">Anzeige entfernen</button></form>
-      </article>
-    {% else %}<div class="empty">Noch kein Display eingerichtet.</div>{% endfor %}
+    <div class="section-head">
+      <div><h2>Anzeige</h2><p>Kameras aus dem Vorrat in eine Grid-Position ziehen. Die Reihenfolge innerhalb einer Position bestimmt die Rotation.</p></div>
     </div>
+
+    <div class="layout-workspace">
+      <aside class="camera-pool panel">
+        <div class="pool-head">
+          <div><h3>Verfügbare Kameras</h3><small><span id="available-count">{{ available_cameras|length }}</span> nicht zugeordnet</small></div>
+          <input id="camera-filter" type="search" placeholder="Kamera suchen…" aria-label="Kamera suchen">
+        </div>
+        <div id="camera-pool" class="camera-pool-list dropzone" data-dropzone="pool">
+          {% for camera in available_cameras %}
+            <div class="camera-chip" draggable="true" tabindex="0"
+                 data-camera-key="{{ camera.camera_key }}" data-camera-name="{{ camera.name|lower }}">
+              <span><strong>{{ camera.name }}</strong><small>{{ camera.server_name or 'lokaler Server' }} · ID {{ camera.zm_id }}</small></span>
+              <button type="button" class="unassign" title="Zuordnung entfernen" aria-label="{{ camera.name }} zurücklegen">×</button>
+            </div>
+          {% else %}
+            <p class="pool-empty">Alle RTSP-Kameras sind zugeordnet.</p>
+          {% endfor %}
+        </div>
+        <p class="touch-help">Auf Touch-Geräten: Kamera antippen, danach die gewünschte Position antippen.</p>
+      </aside>
+
+      <form id="layout-form" method="post" action="{{ url_for('save_layouts') }}" class="screen-layouts">
+        {% for screen in screens %}
+          <input type="hidden" name="screen_id" value="{{ screen.id }}">
+          <article class="card screen-card">
+            <div class="card-head">
+              <div><h3>{{ screen.output_name }}</h3><small>{{ screen.rows }} × {{ screen.cols }}</small></div>
+              <button type="submit" class="link danger" formaction="{{ url_for('delete_screen', screen_id=screen.id) }}"
+                      formnovalidate onclick="return confirm('Anzeige wirklich entfernen?')">Anzeige entfernen</button>
+            </div>
+            <div class="screen-settings">
+              <label>Zeilen<input type="number" name="rows_{{ screen.id }}" min="1" max="8" value="{{ screen.rows }}"></label>
+              <label>Spalten<input type="number" name="cols_{{ screen.id }}" min="1" max="8" value="{{ screen.cols }}"></label>
+              <label>Wechselintervall
+                <span class="input-suffix"><input type="number" name="rotation_seconds_{{ screen.id }}" min="5" max="86400" value="{{ screen.rotation_seconds }}"><span>Sek.</span></span>
+              </label>
+            </div>
+            <div class="grid" style="--cols:{{ screen.cols }}">
+              {% for position in range(screen.rows * screen.cols) %}
+                {% set tile_key = screen.id|string + ':' + position|string %}
+                <div class="tile dropzone" data-dropzone="tile">
+                  <span class="tile-number">{{ position + 1 }}</span>
+                  <div class="tile-camera-list">
+                    {% for camera in assignments.get(tile_key, []) %}
+                      <div class="camera-chip" draggable="true" tabindex="0"
+                           data-camera-key="{{ camera.camera_key }}" data-camera-name="{{ camera.name|lower }}">
+                        <span><strong>{{ camera.name }}</strong><small>{{ camera.server_name or 'lokaler Server' }}</small></span>
+                        <button type="button" class="unassign" title="Zuordnung entfernen" aria-label="{{ camera.name }} zurücklegen">×</button>
+                      </div>
+                    {% endfor %}
+                  </div>
+                  <p class="tile-placeholder">Kamera hier ablegen</p>
+                  <input type="hidden" name="tile_{{ screen.id }}_{{ position }}" value="[]">
+                </div>
+              {% endfor %}
+            </div>
+          </article>
+        {% else %}
+          <div class="empty">Noch kein Display eingerichtet.</div>
+        {% endfor %}
+        {% if screens %}<button type="submit" class="save-layout">Alle Layouts übernehmen</button>{% endif %}
+      </form>
+    </div>
+
     <details class="panel"><summary>Display hinzufügen</summary>
       <form method="post" action="{{ url_for('save_screen') }}" class="form-grid">
         <label>Ausgang<select name="output_name" required>{% for output in outputs %}<option>{{ output.name }}</option>{% endfor %}</select></label>
         <label>Zeilen<input type="number" name="rows" min="1" max="8" value="2"></label>
         <label>Spalten<input type="number" name="cols" min="1" max="8" value="2"></label>
+        <label>Wechselintervall
+          <span class="input-suffix"><input type="number" name="rotation_seconds" min="5" max="86400" value="30"><span>Sek.</span></span>
+        </label>
         <button>Hinzufügen</button>
       </form>
       {% if not outputs %}<p class="warning">Keine XRandR-Ausgänge erkannt. Prüfe, ob die Oberfläche auf dem Anzeigerechner unter DISPLAY=:0 läuft.</p>{% endif %}
@@ -89,7 +141,7 @@
   </section>
 
   <section>
-    <div class="section-head"><div><h2>Kameras</h2><p>{{ selectable_cameras|length }} RTSP-aktiv · {{ cameras|length }} insgesamt</p></div></div>
+    <div class="section-head"><div><h2>Kamera-Details</h2><p>{{ selectable_cameras|length }} RTSP-aktiv · {{ cameras|length }} insgesamt</p></div></div>
     <div class="camera-list">
     {% for camera in cameras %}<form class="camera" method="post" action="{{ url_for('update_camera', camera_key=camera.camera_key) }}">
       <div><strong>{{ camera.name }}</strong><small>ID {{ camera.zm_id }} · {{ camera.server_name or 'lokaler Server' }} · {{ camera.status }} · {% if camera.rtsp_enabled %}RTSP aktiv{% else %}kein RTSP{% endif %}</small></div>
@@ -98,4 +150,6 @@
     </div>
   </section>
 </main>
-</body></html>
+</body>
+</html>
+

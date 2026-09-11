@@ -2,7 +2,17 @@ import tempfile
 from pathlib import Path
 
 import zmwall.core as core
-from zmwall.core import choose_rtsp_host, connect, format_geometry, init_db, render_rtsp, tile_geometry, zm_enabled
+from zmwall.core import (
+    choose_rtsp_host,
+    connect,
+    format_geometry,
+    init_db,
+    parse_camera_keys,
+    render_rtsp,
+    rotation_index,
+    tile_geometry,
+    zm_enabled,
+)
 
 
 def test_schema_and_rtsp_template():
@@ -78,3 +88,52 @@ def test_api_rtsp_stream_name_takes_precedence():
             ).fetchone()
             url = render_rtsp(row, row)
         assert "/gate-stream?" in url
+
+
+def test_camera_key_list_preserves_order_and_removes_duplicates():
+    assert parse_camera_keys('["1:4", "1:5", "1:4", ""]') == ["1:4", "1:5"]
+    assert parse_camera_keys("1:4,1:5") == ["1:4", "1:5"]
+    assert parse_camera_keys(None) == []
+
+
+def test_rotation_index_changes_at_configured_interval():
+    assert rotation_index(3, 30, now=0) == 0
+    assert rotation_index(3, 30, now=29.9) == 0
+    assert rotation_index(3, 30, now=30) == 1
+    assert rotation_index(3, 30, now=60) == 2
+    assert rotation_index(3, 30, now=90) == 0
+    assert rotation_index(1, 30, now=90) == 0
+
+
+def test_old_single_camera_tiles_are_migrated():
+    with tempfile.TemporaryDirectory() as directory:
+        db_path = str(Path(directory) / "legacy.db")
+        with connect(db_path) as db:
+            db.executescript(
+                """
+                CREATE TABLE sites (id INTEGER PRIMARY KEY, name TEXT, base_url TEXT, username TEXT, password TEXT);
+                CREATE TABLE cameras (
+                  camera_key TEXT PRIMARY KEY, site_id INTEGER, zm_id TEXT, name TEXT,
+                  rtsp_host TEXT, rtsp_enabled INTEGER DEFAULT 1
+                );
+                CREATE TABLE screens (
+                  id INTEGER PRIMARY KEY, output_name TEXT UNIQUE, rows INTEGER DEFAULT 2,
+                  cols INTEGER DEFAULT 2, enabled INTEGER DEFAULT 1
+                );
+                CREATE TABLE tiles (
+                  screen_id INTEGER, position INTEGER, camera_key TEXT,
+                  PRIMARY KEY(screen_id, position)
+                );
+                INSERT INTO sites VALUES(1,'Test','https://zm','user','pass');
+                INSERT INTO cameras VALUES('1:4',1,'4','Tor','zm-node',1);
+                INSERT INTO screens VALUES(1,'HDMI-1',2,2,1);
+                INSERT INTO tiles VALUES(1,0,'1:4');
+                """
+            )
+        init_db(db_path)
+        with connect(db_path) as db:
+            screen = db.execute("SELECT rotation_seconds FROM screens WHERE id=1").fetchone()
+            migrated = db.execute("SELECT * FROM tile_cameras").fetchone()
+        assert screen["rotation_seconds"] == 30
+        assert migrated["camera_key"] == "1:4"
+        assert migrated["position"] == 0

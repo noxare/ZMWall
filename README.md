@@ -1,5 +1,7 @@
 # ZM Wall
 
+Aktueller Entwicklungsstand: **0.2.0-beta.1**
+
 ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigurierbare RTSP-Videowand für ZoneMinder. Jeder physische Monitor kann ein eigenes Raster und eine eigene Kamerabelegung erhalten. Die Streams werden direkt mit `mpv` wiedergegeben; die Weboberfläche dient nur zur Verwaltung.
 
 ## Funktionen
@@ -11,6 +13,9 @@ ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigu
 - automatische Übernahme von Kamera-ID, Name, Status und zuständigem Server
 - Hostname bevorzugt; automatische Fallback-IP pro ZoneMinder-Server
 - erneute API-Synchronisierung alle fünf Minuten und manuell per Schaltfläche
+- automatische Wiederherstellung abgebrochener oder vorübergehend nicht erreichbarer Streams
+- Drag-and-drop-Belegung mit einem Vorrat noch nicht zugeordneter RTSP-Kameras
+- mehrere Kameras je Grid-Position mit einstellbarem Wechselintervall
 - anpassbare RTSP-Port-, Streamname- und URL-Regeln
 - abweichender RTSP-Host oder Streamname pro Kamera möglich
 - Erstkonfiguration der Weboberfläche ohne lokales Kennwort
@@ -66,8 +71,10 @@ Solange noch keine ZoneMinder-Verbindung erfolgreich synchronisiert wurde, ist d
 3. RTSP-Port festlegen. Der Vorgabewert ist `20000`.
 4. Die Streamname-Regel festlegen. `{id}` ergibt beispielsweise für Monitor 100 den Streamnamen `100`.
 5. Nach dem ersten erfolgreichen Sync wird die Weboberfläche automatisch geschützt. Der Browser verlangt dann Benutzername und Kennwort; diese werden direkt gegen `/api/host/login.json` des erfolgreich erkannten ZoneMinder-Servers geprüft.
-6. Einen erkannten Display-Ausgang hinzufügen, Zeilen und Spalten wählen und die Kameras auf die Kacheln verteilen.
-7. **Layout übernehmen** klicken. Die Anzeige wird ohne Neustart neu aufgebaut.
+6. Einen erkannten Display-Ausgang hinzufügen sowie Zeilen, Spalten und Wechselintervall wählen.
+7. Kameras aus **Verfügbare Kameras** per Drag-and-drop auf die Grid-Positionen ziehen. Auf Touch-Geräten zuerst die Kamera und danach die Zielposition antippen.
+8. Mehrere Kameras in derselben Position werden in ihrer angezeigten Reihenfolge zyklisch gewechselt. Sie können auch zwischen den Positionen verschoben oder mit **×** zurück in den Vorrat gelegt werden.
+9. **Alle Layouts übernehmen** klicken. Die Anzeige wird ohne Neustart neu aufgebaut.
 
 Bei mehreren erfolgreich synchronisierten ZoneMinder-Verbindungen genügt ein gültiger Benutzer auf einer dieser Installationen für den Zugriff auf ZM Wall.
 
@@ -86,6 +93,12 @@ ZM Wall fragt am eingetragenen ZoneMinder-Controller `/api/monitors.json` und `/
 ZM Wall speichert bei jeder erfolgreichen Namensauflösung zusätzlich die ermittelte IPv4-Adresse des ZoneMinder-Servers. Ist der Hostname später nicht mehr auflösbar, wird automatisch diese zuletzt bekannte IP verwendet. Ist der Name bereits bei der ersten Einrichtung nicht auflösbar, kann unter der ZoneMinder-Verbindung einmalig eine **Fallback-IP** für den betreffenden Server eingetragen werden. Sie gilt automatisch für alle Kameras mit dieser `ServerId`.
 
 Zusätzlich kann für Sonderfälle weiterhin in der Kameraliste ein individueller **RTSP-Host (optional)** eingetragen werden. Diese Kamera-Überschreibung hat die höchste Priorität und bleibt bei späteren Synchronisierungen erhalten.
+
+## Stream-Wiederherstellung und Rotation
+
+ZM Wall überwacht jeden gestarteten `mpv`-Prozess. Bricht ein RTSP-Stream ab oder läuft die Netzwerk-Lesezeitüberschreitung ab, wird der Player beendet und in kurzen Abständen erneut gestartet. Sobald Kamera und RTSP-Server wieder erreichbar sind, erscheint das Bild automatisch; ein Neustart der Wall ist nicht erforderlich.
+
+Jede Grid-Position kann eine oder mehrere Kameras enthalten. Bei mehreren Kameras wechselt ZM Wall nach dem für das betreffende Display eingestellten Intervall zur nächsten Kamera und beginnt nach der letzten wieder von vorn. Der Mindestwert beträgt fünf Sekunden. Ein einzelner Stream bleibt dauerhaft sichtbar.
 
 ## Betrieb und Diagnose
 
