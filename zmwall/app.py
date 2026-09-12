@@ -189,7 +189,7 @@ def index():
         selectable_cameras=selectable_cameras, available_cameras=available_cameras,
         screens=screens, assignments=assignments, outputs=detect_outputs(), version=__version__,
         update_status=dict(update_state),
-        runtime_screens=runtime_status["screens"],
+        runtime_hardware=runtime_status["hardware"],
     )
 
 

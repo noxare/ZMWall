@@ -532,11 +532,17 @@ class PlayerManager:
             for screen_id, output_name in screen_names.items()
         }
         try:
-            active_players = list(self.players.items())
+            runtime_players = [
+                (tile_key, player, "active")
+                for tile_key, player in self.players.items()
+            ] + [
+                (tile_key, player, "preload")
+                for tile_key, player in self.preloads.items()
+            ]
         except RuntimeError:
-            active_players = []
+            runtime_players = []
 
-        for tile_key, player in active_players:
+        for tile_key, player, role in runtime_players:
             screen_id = tile_key.split(":", 1)[0]
             screen = screens.get(screen_id)
             if screen is None or player.process.poll() is not None:
@@ -545,6 +551,7 @@ class PlayerManager:
                 "tile": tile_key,
                 "camera": player.label,
                 "camera_key": player.stream_key,
+                "role": role,
                 "device": player.decode_device,
                 "hwdec": player.hwdec,
                 "codec": player.codec,

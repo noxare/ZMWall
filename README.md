@@ -1,6 +1,6 @@
 # ZM Wall
 
-Aktueller Entwicklungsstand: **0.2.0-beta.19**
+Aktueller Entwicklungsstand: **0.2.0-beta.20**
 
 ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigurierbare RTSP-Videowand für ZoneMinder. Jeder physische Monitor kann ein eigenes Raster und eine eigene Kamerabelegung erhalten. Die Streams werden direkt mit `mpv` wiedergegeben; die Weboberfläche dient nur zur Verwaltung.
 
@@ -116,6 +116,8 @@ Ab Version `0.2.0-beta.17` wird die Copy-Variante als eigener zweiter Startversu
 Ab Version `0.2.0-beta.18` wird die Decoderkette aus der erkannten Hardware und den tatsächlich installierten Treibern gebildet. Auf Intel-Systemen mit vorhandenem Legacy-Treiber testet ZM Wall nach einem gescheiterten Standard- und Copy-Versuch zusätzlich `i965` mit direkter VAAPI- sowie VAAPI-Copy-Ausgabe. Die Versuche erfolgen weiterhin pro Stream und verdeckt; AMD-, NVIDIA- und andere Systeme erhalten keine Intel-spezifischen Optionen. Die Diagnose protokolliert außerdem die jeweils getestete Strategie.
 
 Ab Version `0.2.0-beta.19` steht der tatsächlich verwendete Decoder zusätzlich direkt an jeder zugeordneten Kamera im Grid. Die aktuell laufende Kamera zeigt `GPU` oder `CPU`; andere Kameras derselben Rotationsposition werden als `wartet` markiert. Der Tooltip nennt bei GPU-Decoding das erkannte Modell und die aktive mpv-Methode.
+
+Ab Version `0.2.0-beta.20` zeigt jede Display-Karte dauerhaft die erkannte CPU und GPU mit Modellbezeichnung, unabhängig von der momentanen Streambelegung. Der Decoderstatus bleibt streambezogen. `wartet` bedeutet, dass für diese Kamera kein Player läuft und sie keine zusätzliche Decoderlast verursacht; während des fünfsekündigen Vorabstarts zeigt die Kamera ausdrücklich `puffert` beziehungsweise `CPU · puffert` oder `GPU · puffert`.
 
 Jede Grid-Position kann eine oder mehrere Kameras enthalten. Bei mehreren Kameras wechselt ZM Wall nach dem für das betreffende Display eingestellten Intervall zur nächsten Kamera und beginnt nach der letzten wieder von vorn. Der Mindestwert beträgt fünf Sekunden. Ein einzelner Stream bleibt dauerhaft sichtbar.
 
