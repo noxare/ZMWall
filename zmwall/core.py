@@ -10,6 +10,7 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlparse
@@ -21,6 +22,14 @@ PRELOAD_STABLE_SECONDS = 0.75
 PRELOAD_LEAD_SECONDS = 5.0
 WINDOW_COMMAND_TIMEOUT_SECONDS = 0.20
 WINDOW_SWITCH_SETTLE_SECONDS = 0.05
+
+
+def switch_log(tile: str, camera: str, event: str, **values: Any) -> None:
+    """Write timestamped, credential-free diagnostics for stream rotation."""
+    details = " ".join(f"{name}={value}" for name, value in values.items())
+    suffix = f" {details}" if details else ""
+    timestamp = datetime.now().astimezone().isoformat(timespec="milliseconds")
+    print(f"{timestamp} ZM Wall switch tile={tile} camera={camera!r} event={event}{suffix}", flush=True)
 
 
 SCHEMA = """
@@ -324,6 +333,7 @@ class StreamSpec:
     signature: str
     command: list[str]
     url: str
+    label: str = "unbekannt"
 
 
 @dataclass
@@ -334,6 +344,10 @@ class Player:
     ready_since: float | None = None
     window_id: str | None = None
     is_ontop: bool = False
+    tile_key: str = "unbekannt"
+    label: str = "unbekannt"
+    launched_at: float = 0.0
+    ready_logged: bool = False
 
 
 class PlayerManager:
@@ -352,8 +366,18 @@ class PlayerManager:
     def _terminate(player: Player | None) -> None:
         if not player:
             return
-        if player.process.poll() is None:
+        return_code = player.process.poll()
+        if return_code is None:
             player.process.terminate()
+            switch_log(
+                player.tile_key, player.label, "terminate",
+                pid=getattr(player.process, "pid", "unknown"),
+            )
+        else:
+            switch_log(
+                player.tile_key, player.label, "process-exited",
+                pid=getattr(player.process, "pid", "unknown"), returncode=return_code,
+            )
         try:
             os.unlink(player.ipc_path)
         except FileNotFoundError:
@@ -427,7 +451,8 @@ class PlayerManager:
                                 "--osd-margin-x=8", "--osd-margin-y=6",
                                 "--osd-color=#DDFFFFFF", "--osd-outline-color=#B0000000",
                             ])
-                        return StreamSpec(signature, command, url)
+                        label = f"{camera['name']} (ID {camera['zm_id']})"
+                        return StreamSpec(signature, command, url, label)
 
                     now = time.monotonic()
                     current_index = rotation_index(
@@ -458,13 +483,23 @@ class PlayerManager:
         if hidden:
             command[command.index("--ontop")] = "--ontop=no"
         command.insert(-1, f"--input-ipc-server={ipc_path}")
+        started = time.monotonic()
         try:
             process = subprocess.Popen(command, env=env, stdin=subprocess.PIPE, text=True)
             if process.stdin:
                 process.stdin.write(spec.url + "\n")
                 process.stdin.close()
-            return Player(spec.signature, process, ipc_path, is_ontop=not hidden)
-        except OSError:
+            player = Player(
+                spec.signature, process, ipc_path, is_ontop=not hidden,
+                tile_key=key, label=spec.label, launched_at=started,
+            )
+            switch_log(
+                key, spec.label, "launch", role="preload" if hidden else "active",
+                pid=process.pid,
+            )
+            return player
+        except OSError as error:
+            switch_log(key, spec.label, "launch-failed", error=type(error).__name__)
             try:
                 os.unlink(ipc_path)
             except FileNotFoundError:
@@ -492,6 +527,7 @@ class PlayerManager:
             return None
 
     def _ready(self, player: Player) -> bool:
+        probe_started = time.monotonic()
         video_params = self._ipc(player, ["get_property", "video-params"])
         frame_info = self._ipc(player, ["get_property", "video-frame-info"])
         has_video = bool(
@@ -505,7 +541,13 @@ class PlayerManager:
             and isinstance(frame_info.get("data"), dict)
         )
         if not has_video:
+            if player.ready_since is not None:
+                switch_log(
+                    player.tile_key, player.label, "frame-lost",
+                    pid=getattr(player.process, "pid", "unknown"),
+                )
             player.ready_since = None
+            player.ready_logged = False
             return False
 
         if player.window_id is None:
@@ -516,10 +558,33 @@ class PlayerManager:
         now = time.monotonic()
         if player.ready_since is None:
             player.ready_since = now
+            hardware = self._ipc(player, ["get_property", "hwdec-current"])
+            hardware_name = (
+                hardware.get("data")
+                if hardware and hardware.get("error") == "success"
+                else "unknown"
+            )
+            switch_log(
+                player.tile_key, player.label, "first-frame",
+                pid=getattr(player.process, "pid", "unknown"),
+                window=player.window_id or "unknown", hwdec=hardware_name,
+                launch_ms=round((now - player.launched_at) * 1000),
+                probe_ms=round((now - probe_started) * 1000),
+            )
             return False
-        return now - player.ready_since >= PRELOAD_STABLE_SECONDS
+        is_ready = now - player.ready_since >= PRELOAD_STABLE_SECONDS
+        if is_ready and not player.ready_logged:
+            player.ready_logged = True
+            switch_log(
+                player.tile_key, player.label, "preload-ready",
+                pid=getattr(player.process, "pid", "unknown"),
+                stable_ms=round((now - player.ready_since) * 1000),
+                launch_ms=round((now - player.launched_at) * 1000),
+            )
+        return is_ready
 
     def _raise(self, player: Player) -> bool:
+        started = time.monotonic()
         try:
             if player.window_id is None:
                 window = self._ipc(player, ["get_property", "window-id"])
@@ -546,6 +611,12 @@ class PlayerManager:
                 timeout=WINDOW_COMMAND_TIMEOUT_SECONDS,
             )
             success = raised.returncode == 0
+            switch_log(
+                player.tile_key, player.label, "window-raise",
+                pid=getattr(player.process, "pid", "unknown"),
+                window=player.window_id, success=success,
+                duration_ms=round((time.monotonic() - started) * 1000),
+            )
             if not success:
                 print(
                     "ZM Wall: X11-Fensterwechsel fehlgeschlagen "
@@ -561,10 +632,22 @@ class PlayerManager:
             return False
 
     def _promote(self, key: str, player: Player) -> None:
+        started = time.monotonic()
         old = self.players.get(key)
+        switch_log(
+            key, player.label, "promotion-start",
+            pid=getattr(player.process, "pid", "unknown"),
+            old_pid=getattr(old.process, "pid", "unknown") if old else "none",
+        )
         if not player.is_ontop:
+            ontop_started = time.monotonic()
             self._ipc(player, ["set_property", "ontop", True])
             player.is_ontop = True
+            switch_log(
+                key, player.label, "ontop-enabled",
+                pid=getattr(player.process, "pid", "unknown"),
+                duration_ms=round((time.monotonic() - ontop_started) * 1000),
+            )
         raised = self._raise(player)
         if not raised and old is not None and old is not player:
             # The old implementation proved that revealing the preloaded
@@ -583,6 +666,11 @@ class PlayerManager:
         self.preloads.pop(key, None)
         if old is not None and old is not player:
             self._terminate(old)
+        switch_log(
+            key, player.label, "promotion-complete",
+            pid=getattr(player.process, "pid", "unknown"),
+            duration_ms=round((time.monotonic() - started) * 1000),
+        )
 
     def reconcile(self) -> None:
         try:
