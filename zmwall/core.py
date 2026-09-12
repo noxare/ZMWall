@@ -63,19 +63,33 @@ def detect_decode_hardware() -> dict[str, str]:
 def detect_hwdec_strategies(hardware: dict[str, str], library_root: Path = Path("/usr/lib")) -> list[str]:
     """Build a safe decoder fallback chain from drivers actually installed."""
     strategies = ["auto", "auto-copy"]
+    is_intel = "intel" in hardware.get("gpu", "").lower()
+    if is_intel:
+        # Some FFmpeg builds reject H.264 Baseline before VAAPI is tried even
+        # though the Intel driver advertises it. This copy-back strategy is
+        # attempted only after both normal, profile-checked methods failed.
+        strategies.append("vaapi-copy-force-profile")
     has_i965 = any(library_root.glob("*/dri/i965_drv_video.so")) or (
         library_root / "dri/i965_drv_video.so"
     ).exists()
-    if "intel" in hardware.get("gpu", "").lower() and has_i965:
+    if is_intel and has_i965:
         strategies.extend(["vaapi-i965", "vaapi-copy-i965"])
     return strategies
 
 
 def hwdec_option(strategy: str) -> str:
     return {
+        "vaapi-copy-force-profile": "vaapi-copy",
         "vaapi-i965": "vaapi",
         "vaapi-copy-i965": "vaapi-copy",
     }.get(strategy, strategy)
+
+
+def hwdec_arguments(strategy: str) -> list[str]:
+    arguments = [f"--hwdec={hwdec_option(strategy)}"]
+    if strategy == "vaapi-copy-force-profile":
+        arguments.append("--vd-lavc-check-hw-profile=no")
+    return arguments
 
 
 def switch_log(tile: str, camera: str, event: str, **values: Any) -> None:
@@ -670,7 +684,7 @@ class PlayerManager:
                             f"--screen-name={screen['output_name']}",
                             "--keepaspect=no", "--keepaspect-window=no", "--panscan=0",
                             "--video-zoom=0", "--no-osc", "--cursor-autohide=always",
-                            f"--hwdec={hwdec_option(decode_strategy)}", "--profile=low-latency",
+                            *hwdec_arguments(decode_strategy), "--profile=low-latency",
                             "--demuxer-lavf-o=rtsp_transport=tcp,rw_timeout=15000000",
                             f"--geometry={geometry}", "--really-quiet", "--playlist=-",
                         ]

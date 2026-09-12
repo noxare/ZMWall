@@ -245,12 +245,15 @@ def test_hardware_names_are_readable(monkeypatch):
 
 def test_intel_legacy_driver_is_only_added_when_installed(tmp_path):
     hardware = {"cpu": "CPU", "gpu": "Intel HD Graphics 5500"}
-    assert core.detect_hwdec_strategies(hardware, tmp_path) == ["auto", "auto-copy"]
+    assert core.detect_hwdec_strategies(hardware, tmp_path) == [
+        "auto", "auto-copy", "vaapi-copy-force-profile",
+    ]
     driver = tmp_path / "x86_64-linux-gnu/dri/i965_drv_video.so"
     driver.parent.mkdir(parents=True)
     driver.touch()
     assert core.detect_hwdec_strategies(hardware, tmp_path) == [
-        "auto", "auto-copy", "vaapi-i965", "vaapi-copy-i965",
+        "auto", "auto-copy", "vaapi-copy-force-profile",
+        "vaapi-i965", "vaapi-copy-i965",
     ]
     assert core.detect_hwdec_strategies({"gpu": "AMD Radeon"}, tmp_path) == [
         "auto", "auto-copy",
@@ -259,7 +262,10 @@ def test_intel_legacy_driver_is_only_added_when_installed(tmp_path):
 
 def test_failed_copy_advances_to_installed_intel_driver(monkeypatch):
     manager = core.PlayerManager("unused.db")
-    manager.hwdec_strategies = ["auto", "auto-copy", "vaapi-i965", "vaapi-copy-i965"]
+    manager.hwdec_strategies = [
+        "auto", "auto-copy", "vaapi-copy-force-profile",
+        "vaapi-i965", "vaapi-copy-i965",
+    ]
     player = core.Player(
         "stream", SimpleNamespace(pid=43, poll=lambda: None), "/tmp/i965.sock",
         stream_key="1:88", decode_strategy="auto-copy",
@@ -279,7 +285,15 @@ def test_failed_copy_advances_to_installed_intel_driver(monkeypatch):
 
     monkeypatch.setattr(manager, "_ipc", fake_ipc)
     assert not manager._ready(player)
-    assert manager.hwdec_preferences["1:88"] == "vaapi-i965"
+    assert manager.hwdec_preferences["1:88"] == "vaapi-copy-force-profile"
+
+
+def test_forced_profile_strategy_uses_vaapi_copy():
+    assert core.hwdec_option("vaapi-copy-force-profile") == "vaapi-copy"
+    assert core.hwdec_arguments("vaapi-copy-force-profile") == [
+        "--hwdec=vaapi-copy", "--vd-lavc-check-hw-profile=no",
+    ]
+    assert core.hwdec_arguments("auto") == ["--hwdec=auto"]
 
 
 def test_runtime_status_groups_actual_decoders_by_monitor(monkeypatch):
