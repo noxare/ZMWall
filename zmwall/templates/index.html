@@ -11,7 +11,7 @@
 </head>
 <body data-version="{{ version }}">
 <header>
-  <div><h1>ZM Wall</h1><p>ZoneMinder-RTSP-Videowand · {{ version }}</p></div>
+  <div class="brand"><h1>ZM Wall</h1><p>ZoneMinder-RTSP-Videowand · {{ version }}</p><a class="diagnostics-link" href="{{ url_for('diagnostics') }}">Diagnose öffnen</a></div>
   <div class="header-actions">
     <div id="update-control" data-state="{{ update_status.state }}">
       {% if update_status.state == 'available' %}

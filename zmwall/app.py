@@ -13,6 +13,7 @@ from flask import Flask, Response, flash, jsonify, redirect, render_template, re
 
 from . import __version__
 from .core import PlayerManager, api_url, connect, detect_outputs, init_db, parse_camera_keys, sync_site
+from .diagnostics import diagnose_camera
 
 
 DB_PATH = os.getenv("ZMWALL_DB", "/var/lib/zmwall/zmwall.db")
@@ -28,6 +29,7 @@ UPDATE_ORIGINS = {
     "git@github.com:noxare/ZMWall.git",
 }
 update_lock = threading.Lock()
+diagnostic_lock = threading.Lock()
 update_state = {"state": "checking", "message": "Suche nach Updates …"}
 
 
@@ -197,6 +199,36 @@ def index():
 @login_required
 def get_runtime_status():
     return jsonify(manager.runtime_status())
+
+
+@app.route("/diagnostics", methods=["GET", "POST"])
+@login_required
+def diagnostics():
+    with connect(DB_PATH) as db:
+        diagnostic_cameras = db.execute(
+            """SELECT camera_key,zm_id,name,server_name FROM cameras
+               WHERE enabled=1 AND rtsp_enabled=1 ORDER BY name"""
+        ).fetchall()
+    selected = request.form.get("camera_key", "")
+    result = None
+    diagnostic_error = None
+    if request.method == "POST":
+        valid_keys = {row["camera_key"] for row in diagnostic_cameras}
+        if selected not in valid_keys:
+            diagnostic_error = "Bitte eine gültige RTSP-Kamera auswählen."
+        elif not diagnostic_lock.acquire(blocking=False):
+            diagnostic_error = "Es läuft bereits eine Streamdiagnose."
+        else:
+            try:
+                result = diagnose_camera(DB_PATH, selected, __version__, manager.decode_hardware)
+            except (ValueError, OSError, subprocess.SubprocessError) as error:
+                diagnostic_error = f"Diagnose fehlgeschlagen: {type(error).__name__}"
+            finally:
+                diagnostic_lock.release()
+    return render_template(
+        "diagnostics.html", cameras=diagnostic_cameras, selected=selected,
+        result=result, diagnostic_error=diagnostic_error, version=__version__,
+    )
 
 
 @app.get("/updates/status")
