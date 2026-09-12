@@ -371,6 +371,8 @@ class StreamSpec:
     url: str
     label: str = "unbekannt"
     geometry: tuple[int, int, int, int] | None = None
+    stream_key: str = "unbekannt"
+    decode_strategy: str = "auto"
 
 
 @dataclass
@@ -389,6 +391,8 @@ class Player:
     decode_device: str = "unknown"
     hwdec: str = "unknown"
     codec: str = "unknown"
+    stream_key: str = "unbekannt"
+    decode_strategy: str = "auto"
 
 
 class X11WindowHost:
@@ -488,6 +492,7 @@ class PlayerManager:
         self.window_host: X11WindowHost | None = None
         self.window_host_failed = False
         self.decode_hardware = detect_decode_hardware()
+        self.hwdec_preferences: dict[str, str] = {}
 
     def runtime_status(self) -> dict[str, Any]:
         """Return the actual decoder in use, grouped by physical monitor."""
@@ -625,9 +630,11 @@ class PlayerManager:
 
                     def make_spec(camera: sqlite3.Row) -> StreamSpec:
                         url = render_rtsp(camera, camera, resolution_cache)
+                        stream_key = str(camera["camera_key"])
+                        decode_strategy = self.hwdec_preferences.get(stream_key, "auto")
                         signature = (
                             f"{url}|{screen['output_name']}|"
-                            f"{format_geometry(width, height, x, y)}"
+                            f"{format_geometry(width, height, x, y)}|hwdec={decode_strategy}"
                         )
                         command = [
                             "mpv", "--no-config", "--no-audio", "--no-border", "--ontop",
@@ -636,7 +643,7 @@ class PlayerManager:
                             f"--screen-name={screen['output_name']}",
                             "--keepaspect=no", "--keepaspect-window=no", "--panscan=0",
                             "--video-zoom=0", "--no-osc", "--cursor-autohide=always",
-                            "--hwdec=auto,auto-copy", "--profile=low-latency",
+                            f"--hwdec={decode_strategy}", "--profile=low-latency",
                             "--demuxer-lavf-o=rtsp_transport=tcp,rw_timeout=15000000",
                             f"--geometry={geometry}", "--really-quiet", "--playlist=-",
                         ]
@@ -649,7 +656,10 @@ class PlayerManager:
                                 "--osd-color=#DDFFFFFF", "--osd-outline-color=#B0000000",
                             ])
                         label = f"{camera['name']} (ID {camera['zm_id']})"
-                        return StreamSpec(signature, command, url, label, (x, y, width, height))
+                        return StreamSpec(
+                            signature, command, url, label, (x, y, width, height),
+                            stream_key, decode_strategy,
+                        )
 
                     now = time.monotonic()
                     current_index = rotation_index(
@@ -710,6 +720,8 @@ class PlayerManager:
                 tile_key=key, label=spec.label, launched_at=started,
                 window_id=str(surface.id) if surface is not None else None,
                 surface=surface,
+                stream_key=spec.stream_key,
+                decode_strategy=spec.decode_strategy,
             )
             switch_log(
                 key, spec.label, "launch", role="preload" if hidden else "active",
@@ -809,6 +821,14 @@ class PlayerManager:
             player.hwdec = str(hardware_name or "no")
             player.decode_device = "gpu" if player.hwdec not in {"no", "unknown", ""} else "cpu"
             player.codec = str(video_track.get("codec", "unknown"))
+            if player.decode_device == "cpu" and player.decode_strategy == "auto":
+                self.hwdec_preferences[player.stream_key] = "auto-copy"
+                self.reload_event.set()
+                switch_log(
+                    player.tile_key, player.label, "hwdec-copy-retry",
+                    pid=getattr(player.process, "pid", "unknown"),
+                    codec=player.codec, from_strategy="auto", to_strategy="auto-copy",
+                )
             switch_log(
                 player.tile_key, player.label, "first-frame",
                 pid=getattr(player.process, "pid", "unknown"),

@@ -1,6 +1,6 @@
 # ZM Wall
 
-Aktueller Entwicklungsstand: **0.2.0-beta.16**
+Aktueller Entwicklungsstand: **0.2.0-beta.17**
 
 ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigurierbare RTSP-Videowand für ZoneMinder. Jeder physische Monitor kann ein eigenes Raster und eine eigene Kamerabelegung erhalten. Die Streams werden direkt mit `mpv` wiedergegeben; die Weboberfläche dient nur zur Verwaltung.
 
@@ -110,6 +110,8 @@ Ab Version `0.2.0-beta.14` besitzt jede Grid-Position ein dauerhaftes, nicht von
 Ab Version `0.2.0-beta.15` enthält der Diagnoseeintrag für das erste Frame zusätzlich Videocodec, Codecprofil, Decoder, Auflösung, Pixelformat sowie den aktiven Hardwaredecoder und dessen Ausgabe-Interop. Damit lassen sich nicht hardwarebeschleunigte Kamerastreams erkennen, ohne RTSP-Zugangsdaten zu protokollieren.
 
 Ab Version `0.2.0-beta.16` zeigt jede Display-Karte in der Weboberfläche live an, ob ihre aktiven Streams tatsächlich über CPU, GPU oder gemischt dekodiert werden. Die erkannte CPU beziehungsweise GPU wird mit einer lesbaren Modellbezeichnung ausgegeben; der Tooltip schlüsselt die Nutzung pro Kamera auf. ZM Wall lässt mpv hardwareunabhängig zuerst einen direkt angebundenen Hardwaredecoder und anschließend eine kompatible Copy-Variante versuchen. Nicht unterstützte Streams fallen weiterhin zuverlässig auf Software-Decoding zurück.
+
+Ab Version `0.2.0-beta.17` wird die Copy-Variante als eigener zweiter Startversuch ausgeführt. Erkennt ZM Wall beim ersten Frame eines Streams Software-Decoding, wird nur dieser Stream verdeckt mit `auto-copy` neu aufgebaut. Das bisherige Bild bleibt sichtbar, bis der zweite Versuch stabile Frames liefert; ein erfolgloser Copy-Versuch wird nicht wiederholt.
 
 Jede Grid-Position kann eine oder mehrere Kameras enthalten. Bei mehreren Kameras wechselt ZM Wall nach dem für das betreffende Display eingestellten Intervall zur nächsten Kamera und beginnt nach der letzten wieder von vorn. Der Mindestwert beträgt fünf Sekunden. Ein einzelner Stream bleibt dauerhaft sichtbar.
 

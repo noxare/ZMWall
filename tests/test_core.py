@@ -189,10 +189,43 @@ def test_player_manager_prepares_current_and_upcoming_stream(monkeypatch):
         now[0] = 26
         current, upcoming = core.PlayerManager(db_path).desired()[f"{screen_id}:0"]
         assert "/tor?" in current.url
-        assert "--hwdec=auto,auto-copy" in current.command
+        assert "--hwdec=auto" in current.command
         assert upcoming is not None
         assert "/hof?" in upcoming.url
         assert upcoming.geometry == (0, 0, 1920, 1080)
+
+
+def test_software_fallback_retries_stream_with_auto_copy(monkeypatch):
+    class FakeProcess:
+        pid = 42
+
+        def poll(self):
+            return None
+
+    manager = core.PlayerManager("unused.db")
+    player = core.Player(
+        "stream", FakeProcess(), "/tmp/retry.sock", stream_key="1:75",
+        decode_strategy="auto",
+    )
+
+    def fake_ipc(_player, command):
+        property_name = command[-1]
+        if property_name == "video-params":
+            return {"error": "success", "data": {"w": 640, "h": 360, "pixelformat": "yuv420p"}}
+        if property_name == "video-frame-info":
+            return {"error": "success", "data": {"picture-type": "P"}}
+        if property_name == "track-list":
+            return {"error": "success", "data": [{
+                "type": "video", "selected": True, "codec": "h264", "codec-profile": "Baseline",
+            }]}
+        if property_name == "hwdec-current":
+            return {"error": "success", "data": "no"}
+        return {"error": "success", "data": "vaapi,vulkan"}
+
+    monkeypatch.setattr(manager, "_ipc", fake_ipc)
+    assert not manager._ready(player)
+    assert manager.hwdec_preferences["1:75"] == "auto-copy"
+    assert manager.reload_event.is_set()
 
 
 def test_hardware_names_are_readable(monkeypatch):
