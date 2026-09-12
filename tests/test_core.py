@@ -1,5 +1,6 @@
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import zmwall.core as core
 from zmwall.core import (
@@ -194,7 +195,7 @@ def test_rotation_keeps_old_player_until_preload_has_video(monkeypatch):
     manager = core.PlayerManager("unused.db")
     old_process = FakeProcess(10)
     next_process = FakeProcess(11)
-    old = core.Player("old", old_process, "/tmp/not-created-old.sock")
+    old = core.Player("old", old_process, "/tmp/not-created-old.sock", is_ontop=True)
     preloaded = core.Player("next", next_process, "/tmp/not-created-next.sock")
     spec = core.StreamSpec("next", ["mpv"], "rtsp://next")
     manager.players["1:0"] = old
@@ -208,10 +209,61 @@ def test_rotation_keeps_old_player_until_preload_has_video(monkeypatch):
 
     monkeypatch.setattr(manager, "_ready", lambda player: True)
     monkeypatch.setattr(manager, "_ipc", lambda player, command: {"error": "success"})
-    monkeypatch.setattr(core.subprocess, "run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        core.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0),
+    )
     manager.reconcile()
     assert manager.players["1:0"] is preloaded
+    assert not old_process.terminated
+    assert manager.retired[0][1] is old
+
+    manager.retired[0] = (0, old)
+    manager.reconcile()
     assert old_process.terminated
+
+
+def test_two_camera_rotation_reuses_both_ontop_windows(monkeypatch):
+    class FakeProcess:
+        def __init__(self, pid):
+            self.pid = pid
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            raise AssertionError("reused double-buffer player must stay alive")
+
+    manager = core.PlayerManager("unused.db")
+    first = core.Player(
+        "first", FakeProcess(10), "/tmp/not-created-first.sock", is_ontop=True
+    )
+    second = core.Player("second", FakeProcess(11), "/tmp/not-created-second.sock")
+    first_spec = core.StreamSpec("first", ["mpv"], "rtsp://first")
+    second_spec = core.StreamSpec("second", ["mpv"], "rtsp://second")
+    ontop_calls = []
+
+    def fake_ipc(player, command):
+        if command[:2] == ["set_property", "ontop"]:
+            ontop_calls.append(player.signature)
+        return {"error": "success"}
+
+    monkeypatch.setattr(manager, "_ipc", fake_ipc)
+    monkeypatch.setattr(manager, "_raise", lambda player: True)
+    manager.players["1:0"] = first
+    manager.preloads["1:0"] = second
+
+    assert manager._promote("1:0", second, first_spec)
+    assert manager.players["1:0"] is second
+    assert manager.preloads["1:0"] is first
+    assert not manager.retired
+
+    assert manager._promote("1:0", first, second_spec)
+    assert manager.players["1:0"] is first
+    assert manager.preloads["1:0"] is second
+    assert not manager.retired
+    assert ontop_calls == ["second"]
 
 
 def test_preload_must_render_frames_stably_before_it_is_ready(monkeypatch):

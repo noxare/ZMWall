@@ -18,6 +18,7 @@ import requests
 
 
 PRELOAD_STABLE_SECONDS = 0.75
+PLAYER_RETIRE_GRACE_SECONDS = 2.0
 
 
 SCHEMA = """
@@ -321,6 +322,7 @@ class Player:
     process: subprocess.Popen
     ipc_path: str
     ready_since: float | None = None
+    is_ontop: bool = False
 
 
 class PlayerManager:
@@ -328,6 +330,7 @@ class PlayerManager:
         self.db_path = db_path
         self.players: dict[str, Player] = {}
         self.preloads: dict[str, Player] = {}
+        self.retired: list[tuple[float, Player]] = []
         self.stop_event = threading.Event()
         self.reload_event = threading.Event()
         self._ipc_counter = 0
@@ -348,8 +351,13 @@ class PlayerManager:
 
     def close(self) -> None:
         self.stop_event.set()
-        for player in [*self.players.values(), *self.preloads.values()]:
+        for player in [
+            *self.players.values(),
+            *self.preloads.values(),
+            *(player for _, player in self.retired),
+        ]:
             self._terminate(player)
+        self.retired.clear()
 
     def desired(self) -> dict[str, tuple[StreamSpec, StreamSpec | None]]:
         outputs = {str(item["name"]): item for item in detect_outputs()}
@@ -440,7 +448,7 @@ class PlayerManager:
             if process.stdin:
                 process.stdin.write(spec.url + "\n")
                 process.stdin.close()
-            return Player(spec.signature, process, ipc_path)
+            return Player(spec.signature, process, ipc_path, is_ontop=not hidden)
         except OSError:
             try:
                 os.unlink(ipc_path)
@@ -491,24 +499,64 @@ class PlayerManager:
             return False
         return now - player.ready_since >= PRELOAD_STABLE_SECONDS
 
-    def _promote(self, key: str, player: Player) -> None:
-        old = self.players.get(key)
-        # The preloaded window already contains a decoded frame. Raise it first,
-        # then remove the old player so no black gap is exposed.
-        self._ipc(player, ["set_property", "ontop", True])
+    @staticmethod
+    def _command_succeeded(response: dict[str, Any] | None) -> bool:
+        return bool(response and response.get("error") == "success")
+
+    def _raise(self, player: Player) -> bool:
         try:
-            subprocess.run(
+            result = subprocess.run(
                 ["xdotool", "search", "--onlyvisible", "--pid", str(player.process.pid), "windowraise"],
                 check=False, capture_output=True, timeout=1,
             )
+            return result.returncode == 0
         except (OSError, subprocess.SubprocessError):
-            pass
+            return False
+
+    def _promote(self, key: str, player: Player, upcoming: StreamSpec | None) -> bool:
+        old = self.players.get(key)
+        # Changing the EWMH ontop state can itself take a compositor cycle. Do
+        # it only once per window; reused double-buffer windows merely need to
+        # be raised on subsequent rotations.
+        if not player.is_ontop:
+            if not self._command_succeeded(
+                self._ipc(player, ["set_property", "ontop", True])
+            ):
+                return False
+            player.is_ontop = True
+        if not self._raise(player):
+            return False
+
         self.players[key] = player
         self.preloads.pop(key, None)
-        if old is not player:
-            self._terminate(old)
+        if old is not None and old is not player:
+            if upcoming is not None and old.signature == upcoming.signature:
+                # With two cameras, keep both decoded windows alive and only
+                # alternate their stacking order. No RTSP reconnect or window
+                # recreation is needed after the first cycle.
+                old.ready_since = time.monotonic() - PRELOAD_STABLE_SECONDS
+                self.preloads[key] = old
+            else:
+                # Keep the covered window alive until Openbox has certainly
+                # applied the new stacking order. Immediate destruction can
+                # briefly expose the black X root window.
+                self.retired.append(
+                    (time.monotonic() + PLAYER_RETIRE_GRACE_SECONDS, old)
+                )
+        return True
+
+    def _cleanup_retired(self) -> None:
+        now = time.monotonic()
+        keep: list[tuple[float, Player]] = []
+        for deadline, player in self.retired:
+            if deadline <= now or player.process.poll() is not None:
+                self._terminate(player)
+            else:
+                keep.append((deadline, player))
+        self.retired = keep
 
     def reconcile(self) -> None:
+        self._cleanup_retired()
         try:
             wanted = self.desired()
         except Exception:
@@ -534,9 +582,9 @@ class PlayerManager:
 
             if not active:
                 if preload and preload.signature == current.signature and self._ready(preload):
-                    self._promote(key, preload)
-                    active = preload
-                    preload = None
+                    if self._promote(key, preload, upcoming):
+                        active = preload
+                        preload = self.preloads.get(key)
                 else:
                     if preload:
                         self._terminate(preload)
@@ -551,9 +599,9 @@ class PlayerManager:
                 # decoded a real frame.
                 if preload and preload.signature == current.signature:
                     if self._ready(preload):
-                        self._promote(key, preload)
-                        active = preload
-                        preload = None
+                        if self._promote(key, preload, upcoming):
+                            active = preload
+                            preload = self.preloads.get(key)
                 else:
                     if preload:
                         self._terminate(preload)
