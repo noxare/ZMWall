@@ -60,6 +60,24 @@ def detect_decode_hardware() -> dict[str, str]:
     return {"cpu": cpu, "gpu": gpu}
 
 
+def detect_hwdec_strategies(hardware: dict[str, str], library_root: Path = Path("/usr/lib")) -> list[str]:
+    """Build a safe decoder fallback chain from drivers actually installed."""
+    strategies = ["auto", "auto-copy"]
+    has_i965 = any(library_root.glob("*/dri/i965_drv_video.so")) or (
+        library_root / "dri/i965_drv_video.so"
+    ).exists()
+    if "intel" in hardware.get("gpu", "").lower() and has_i965:
+        strategies.extend(["vaapi-i965", "vaapi-copy-i965"])
+    return strategies
+
+
+def hwdec_option(strategy: str) -> str:
+    return {
+        "vaapi-i965": "vaapi",
+        "vaapi-copy-i965": "vaapi-copy",
+    }.get(strategy, strategy)
+
+
 def switch_log(tile: str, camera: str, event: str, **values: Any) -> None:
     """Write timestamped, credential-free diagnostics for stream rotation."""
     details = " ".join(f"{name}={value}" for name, value in values.items())
@@ -492,6 +510,7 @@ class PlayerManager:
         self.window_host: X11WindowHost | None = None
         self.window_host_failed = False
         self.decode_hardware = detect_decode_hardware()
+        self.hwdec_strategies = detect_hwdec_strategies(self.decode_hardware)
         self.hwdec_preferences: dict[str, str] = {}
 
     def runtime_status(self) -> dict[str, Any]:
@@ -643,7 +662,7 @@ class PlayerManager:
                             f"--screen-name={screen['output_name']}",
                             "--keepaspect=no", "--keepaspect-window=no", "--panscan=0",
                             "--video-zoom=0", "--no-osc", "--cursor-autohide=always",
-                            f"--hwdec={decode_strategy}", "--profile=low-latency",
+                            f"--hwdec={hwdec_option(decode_strategy)}", "--profile=low-latency",
                             "--demuxer-lavf-o=rtsp_transport=tcp,rw_timeout=15000000",
                             f"--geometry={geometry}", "--really-quiet", "--playlist=-",
                         ]
@@ -683,6 +702,8 @@ class PlayerManager:
     def _launch(self, key: str, spec: StreamSpec, hidden: bool) -> Player | None:
         env = dict(os.environ)
         env["DISPLAY"] = os.getenv("ZMWALL_DISPLAY", env.get("DISPLAY", ":0"))
+        if spec.decode_strategy.endswith("-i965"):
+            env["LIBVA_DRIVER_NAME"] = "i965"
         self._ipc_counter += 1
         safe_key = re.sub(r"[^A-Za-z0-9_.-]", "-", key)
         ipc_path = f"/tmp/zmwall-{os.getpid()}-{safe_key}-{self._ipc_counter}.sock"
@@ -821,13 +842,19 @@ class PlayerManager:
             player.hwdec = str(hardware_name or "no")
             player.decode_device = "gpu" if player.hwdec not in {"no", "unknown", ""} else "cpu"
             player.codec = str(video_track.get("codec", "unknown"))
-            if player.decode_device == "cpu" and player.decode_strategy == "auto":
-                self.hwdec_preferences[player.stream_key] = "auto-copy"
+            try:
+                strategy_index = self.hwdec_strategies.index(player.decode_strategy)
+                next_strategy = self.hwdec_strategies[strategy_index + 1]
+            except (ValueError, IndexError):
+                next_strategy = None
+            if player.decode_device == "cpu" and next_strategy is not None:
+                self.hwdec_preferences[player.stream_key] = next_strategy
                 self.reload_event.set()
                 switch_log(
                     player.tile_key, player.label, "hwdec-copy-retry",
                     pid=getattr(player.process, "pid", "unknown"),
-                    codec=player.codec, from_strategy="auto", to_strategy="auto-copy",
+                    codec=player.codec, from_strategy=player.decode_strategy,
+                    to_strategy=next_strategy,
                 )
             switch_log(
                 player.tile_key, player.label, "first-frame",
@@ -840,6 +867,7 @@ class PlayerManager:
                 pixelformat=decoded_params.get("pixelformat", "unknown"),
                 hw_pixelformat=decoded_params.get("hw-pixelformat", "none"),
                 hwdec=hardware_name, interop=interop_name,
+                strategy=player.decode_strategy,
                 launch_ms=round((now - player.launched_at) * 1000),
                 probe_ms=round((now - probe_started) * 1000),
             )

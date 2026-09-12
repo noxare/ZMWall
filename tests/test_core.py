@@ -203,6 +203,7 @@ def test_software_fallback_retries_stream_with_auto_copy(monkeypatch):
             return None
 
     manager = core.PlayerManager("unused.db")
+    manager.hwdec_strategies = ["auto", "auto-copy"]
     player = core.Player(
         "stream", FakeProcess(), "/tmp/retry.sock", stream_key="1:75",
         decode_strategy="auto",
@@ -240,6 +241,45 @@ def test_hardware_names_are_readable(monkeypatch):
     assert hardware["gpu"] == "Intel Corporation HD Graphics 5500"
     assert "(R)" not in hardware["cpu"]
     assert "(TM)" not in hardware["cpu"]
+
+
+def test_intel_legacy_driver_is_only_added_when_installed(tmp_path):
+    hardware = {"cpu": "CPU", "gpu": "Intel HD Graphics 5500"}
+    assert core.detect_hwdec_strategies(hardware, tmp_path) == ["auto", "auto-copy"]
+    driver = tmp_path / "x86_64-linux-gnu/dri/i965_drv_video.so"
+    driver.parent.mkdir(parents=True)
+    driver.touch()
+    assert core.detect_hwdec_strategies(hardware, tmp_path) == [
+        "auto", "auto-copy", "vaapi-i965", "vaapi-copy-i965",
+    ]
+    assert core.detect_hwdec_strategies({"gpu": "AMD Radeon"}, tmp_path) == [
+        "auto", "auto-copy",
+    ]
+
+
+def test_failed_copy_advances_to_installed_intel_driver(monkeypatch):
+    manager = core.PlayerManager("unused.db")
+    manager.hwdec_strategies = ["auto", "auto-copy", "vaapi-i965", "vaapi-copy-i965"]
+    player = core.Player(
+        "stream", SimpleNamespace(pid=43, poll=lambda: None), "/tmp/i965.sock",
+        stream_key="1:88", decode_strategy="auto-copy",
+    )
+
+    def fake_ipc(_player, command):
+        name = command[-1]
+        values = {
+            "video-params": {"w": 640, "h": 360},
+            "video-frame-info": {"picture-type": "P"},
+            "hwdec-current": "no",
+            "hwdec-interop": "none",
+            "window-id": 1234,
+            "track-list": [{"type": "video", "selected": True, "codec": "h264"}],
+        }
+        return {"error": "success", "data": values[name]}
+
+    monkeypatch.setattr(manager, "_ipc", fake_ipc)
+    assert not manager._ready(player)
+    assert manager.hwdec_preferences["1:88"] == "vaapi-i965"
 
 
 def test_runtime_status_groups_actual_decoders_by_monitor(monkeypatch):
