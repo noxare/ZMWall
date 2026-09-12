@@ -1,6 +1,6 @@
 # ZM Wall
 
-Aktueller Entwicklungsstand: **0.2.0-beta.9**
+Aktueller Entwicklungsstand: **0.2.0-beta.10**
 
 ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigurierbare RTSP-Videowand für ZoneMinder. Jeder physische Monitor kann ein eigenes Raster und eine eigene Kamerabelegung erhalten. Die Streams werden direkt mit `mpv` wiedergegeben; die Weboberfläche dient nur zur Verwaltung.
 
@@ -134,6 +134,16 @@ mpv 'rtsp://SERVER:20000/100?username=BENUTZER&password=PASSWORT'
 ```
 
 Bei selbst signierten HTTPS-Zertifikaten kann die TLS-Prüfung je ZoneMinder-Verbindung deaktiviert werden. Im normalen Betrieb sollte sie aktiviert bleiben.
+
+## Aktualisierung
+
+Eine installierte ZM Wall wird direkt aus dem offiziellen Git-Repository aktualisiert:
+
+```bash
+sudo /opt/zmwall/update.sh
+```
+
+Das Skript prüft Repository und Branch, akzeptiert ausschließlich Fast-Forward-Updates von `noxare/ZMWall`, aktualisiert bei Bedarf die Python-Abhängigkeiten und startet danach die grafische ZMWall-Sitzung neu. `/etc/zmwall.env`, Zertifikate und die Datenbank unter `/var/lib/zmwall` bleiben dabei erhalten. Bei lokalen Änderungen an verwalteten Programmdateien bricht das Update ab, statt diese zu überschreiben.
 
 ## Sicherheit
 

@@ -17,6 +17,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y python3-venv mpv xorg openbox 
 id "$APP_USER" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash "$APP_USER"
 install -d -m 0755 "$APP_DIR"
 cp -a "$SOURCE_DIR"/. "$APP_DIR"/
+chmod 0755 "$APP_DIR/update.sh"
 python3 -m venv "$APP_DIR/.venv"
 "$APP_DIR/.venv/bin/pip" install --disable-pip-version-check -r "$APP_DIR/requirements.txt"
 
@@ -83,4 +84,5 @@ systemctl enable lightdm
 
 echo "Installation abgeschlossen. Nach dem Neustart: https://DIE-IP-DIESES-RECHNERS"
 echo "Die Erstkonfiguration ist ohne Web-Login möglich. Nach dem ersten erfolgreichen ZoneMinder-Sync werden gültige ZoneMinder-Zugangsdaten für die Weboberfläche verlangt."
-echo "Die lokale CA kann unter https://DIE-IP-DIESES-RECHNERS/zmwall-local-ca.crt heruntergeladen werden."\necho "Die Datei $ENV_FILE und die privaten TLS-Schlüssel sind lokal geschützt."
+echo "Die lokale CA kann unter https://DIE-IP-DIESES-RECHNERS/zmwall-local-ca.crt heruntergeladen werden."
+echo "Die Datei $ENV_FILE und die privaten TLS-Schlüssel sind lokal geschützt."
