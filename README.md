@@ -1,6 +1,6 @@
 # ZM Wall
 
-Aktueller Entwicklungsstand: **0.2.0-beta.20**
+Aktueller Entwicklungsstand: **0.2.0-beta.21**
 
 ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigurierbare RTSP-Videowand für ZoneMinder. Jeder physische Monitor kann ein eigenes Raster und eine eigene Kamerabelegung erhalten. Die Streams werden direkt mit `mpv` wiedergegeben; die Weboberfläche dient nur zur Verwaltung.
 
@@ -118,6 +118,8 @@ Ab Version `0.2.0-beta.18` wird die Decoderkette aus der erkannten Hardware und 
 Ab Version `0.2.0-beta.19` steht der tatsächlich verwendete Decoder zusätzlich direkt an jeder zugeordneten Kamera im Grid. Die aktuell laufende Kamera zeigt `GPU` oder `CPU`; andere Kameras derselben Rotationsposition werden als `wartet` markiert. Der Tooltip nennt bei GPU-Decoding das erkannte Modell und die aktive mpv-Methode.
 
 Ab Version `0.2.0-beta.20` zeigt jede Display-Karte dauerhaft die erkannte CPU und GPU mit Modellbezeichnung, unabhängig von der momentanen Streambelegung. Der Decoderstatus bleibt streambezogen. `wartet` bedeutet, dass für diese Kamera kein Player läuft und sie keine zusätzliche Decoderlast verursacht; während des fünfsekündigen Vorabstarts zeigt die Kamera ausdrücklich `puffert` beziehungsweise `CPU · puffert` oder `GPU · puffert`.
+
+Ab Version `0.2.0-beta.21` kann `diagnose-stream.py` einen Kamerastream unverändert und ohne Software-Fallback gegen die verfügbaren Intel-VAAPI-Treiber prüfen. Das Werkzeug liest die bestehende Konfiguration, übergibt die kennworthaltige RTSP-URL über stdin an mpv und entfernt URL, Benutzername sowie Kennwort nochmals aus der Ausgabe. Es ändert weder Kamera- noch ZM-Wall-Einstellungen.
 
 Jede Grid-Position kann eine oder mehrere Kameras enthalten. Bei mehreren Kameras wechselt ZM Wall nach dem für das betreffende Display eingestellten Intervall zur nächsten Kamera und beginnt nach der letzten wieder von vorn. Der Mindestwert beträgt fünf Sekunden. Ein einzelner Stream bleibt dauerhaft sichtbar.
 
