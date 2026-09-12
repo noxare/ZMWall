@@ -6,11 +6,23 @@
   <title>ZM Wall</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script defer src="{{ url_for('static', filename='layout.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='updates.js') }}"></script>
 </head>
-<body>
+<body data-version="{{ version }}">
 <header>
   <div><h1>ZM Wall</h1><p>ZoneMinder-RTSP-Videowand · {{ version }}</p></div>
-  <span class="live">● Anzeige aktiv</span>
+  <div class="header-actions">
+    <div id="update-control" data-state="{{ update_status.state }}">
+      {% if update_status.state == 'available' %}
+        <form method="post" action="{{ url_for('install_update') }}" onsubmit="return confirm('ZMWall jetzt aktualisieren? Die Streams werden dabei kurz neu gestartet.')">
+          <button class="update-button">Update verfügbar · installieren</button>
+        </form>
+      {% elif update_status.state == 'updating' %}
+        <span class="update-progress">Update wird installiert …</span>
+      {% endif %}
+    </div>
+    <span class="live">● Anzeige aktiv</span>
+  </div>
 </header>
 <main>
   {% for category, message in get_flashed_messages(with_categories=true) %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}

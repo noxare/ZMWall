@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import os
+import signal
+import subprocess
 import threading
 import time
 from functools import wraps
+from pathlib import Path
 
 import requests
-from flask import Flask, Response, flash, redirect, render_template, request, url_for
+from flask import Flask, Response, flash, jsonify, redirect, render_template, request, url_for
 
 from . import __version__
 from .core import PlayerManager, api_url, connect, detect_outputs, init_db, parse_camera_keys, sync_site
@@ -17,6 +20,80 @@ app = Flask(__name__)
 app.secret_key = os.getenv("ZMWALL_SECRET_KEY", "change-this-key")
 init_db(DB_PATH)
 manager = PlayerManager(DB_PATH)
+APP_DIR = Path(__file__).resolve().parent.parent
+UPDATE_LOG = Path(DB_PATH).parent / "update.log"
+UPDATE_ORIGINS = {
+    "https://github.com/noxare/ZMWall",
+    "https://github.com/noxare/ZMWall.git",
+    "git@github.com:noxare/ZMWall.git",
+}
+update_lock = threading.Lock()
+update_state = {"state": "checking", "message": "Suche nach Updates …"}
+
+
+def _git(*arguments: str, timeout: int = 25) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(APP_DIR), *arguments],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def _set_update_state(state: str, message: str, **values: str) -> dict[str, str]:
+    global update_state
+    update_state = {"state": state, "message": message, **values}
+    return dict(update_state)
+
+
+def check_for_update() -> dict[str, str]:
+    """Fetch main and cache whether a safe fast-forward update is available."""
+    with update_lock:
+        if update_state.get("state") == "updating":
+            return dict(update_state)
+        try:
+            if not (APP_DIR / ".git").is_dir():
+                return _set_update_state("error", "Installation ist kein Git-Checkout.")
+            origin = _git("remote", "get-url", "origin")
+            if origin.returncode or origin.stdout.strip() not in UPDATE_ORIGINS:
+                return _set_update_state("error", "Unerwartetes Git-Repository.")
+            branch = _git("branch", "--show-current")
+            if branch.returncode or branch.stdout.strip() != "main":
+                return _set_update_state("error", "Für Updates muss der Branch main aktiv sein.")
+            changed = _git("status", "--porcelain", "--untracked-files=no")
+            if changed.returncode or changed.stdout.strip():
+                return _set_update_state("error", "Lokale Programmänderungen verhindern das Update.")
+
+            fetched = _git("fetch", "--quiet", "--prune", "origin", "main", timeout=40)
+            if fetched.returncode:
+                return _set_update_state("error", "GitHub konnte nicht nach Updates gefragt werden.")
+            local = _git("rev-parse", "HEAD")
+            remote = _git("rev-parse", "origin/main")
+            if local.returncode or remote.returncode:
+                return _set_update_state("error", "Git-Versionsstand konnte nicht gelesen werden.")
+            local_sha = local.stdout.strip()
+            remote_sha = remote.stdout.strip()
+            if local_sha == remote_sha:
+                return _set_update_state("current", "ZMWall ist aktuell.", current=local_sha[:8])
+            ancestor = _git("merge-base", "--is-ancestor", local_sha, remote_sha)
+            if ancestor.returncode:
+                return _set_update_state("error", "Das Update ist nicht per Fast-Forward möglich.")
+            return _set_update_state(
+                "available",
+                "Eine neue ZMWall-Version ist verfügbar.",
+                current=local_sha[:8],
+                target=remote_sha[:8],
+                target_sha=remote_sha,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return _set_update_state("error", "Update-Prüfung ist fehlgeschlagen.")
+
+
+def periodic_update_check() -> None:
+    while True:
+        check_for_update()
+        time.sleep(300)
 
 
 def _auth_sites():
@@ -110,7 +187,48 @@ def index():
         "index.html", sites=sites, zm_servers=zm_servers, cameras=cameras,
         selectable_cameras=selectable_cameras, available_cameras=available_cameras,
         screens=screens, assignments=assignments, outputs=detect_outputs(), version=__version__,
+        update_status=dict(update_state),
     )
+
+
+@app.get("/updates/status")
+@login_required
+def get_update_status():
+    return jsonify({**update_state, "version": __version__})
+
+
+@app.post("/updates/install")
+@login_required
+def install_update():
+    status = check_for_update()
+    if status["state"] != "available":
+        flash(status["message"], "error" if status["state"] == "error" else "ok")
+        return redirect(url_for("index"))
+
+    try:
+        with UPDATE_LOG.open("ab", buffering=0) as log_handle:
+            process = subprocess.Popen(
+                [str(APP_DIR / "update.sh"), "--web", str(os.getpid()), status["target_sha"]],
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                close_fds=True,
+            )
+    except OSError:
+        _set_update_state("error", "Der Update-Prozess konnte nicht gestartet werden.")
+        flash(update_state["message"], "error")
+        return redirect(url_for("index"))
+
+    _set_update_state("updating", "Update wird installiert …", target=status.get("target", ""))
+
+    def watch_failed_update() -> None:
+        return_code = process.wait()
+        if return_code:
+            _set_update_state("error", "Update fehlgeschlagen. Details stehen in update.log.")
+
+    threading.Thread(target=watch_failed_update, daemon=True).start()
+    flash("Update gestartet. Die Weboberfläche ist während des kurzen Neustarts vorübergehend nicht erreichbar.", "ok")
+    return redirect(url_for("index"))
 
 
 @app.post("/sites")
@@ -302,8 +420,15 @@ def periodic_sync() -> None:
 
 def main() -> None:
     from waitress import serve
+
+    def stop_application(_signal_number, _frame) -> None:
+        manager.close()
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, stop_application)
     threading.Thread(target=manager.run, daemon=True).start()
     threading.Thread(target=periodic_sync, daemon=True).start()
+    threading.Thread(target=periodic_update_check, daemon=True).start()
     serve(app, host=os.getenv("ZMWALL_BIND", "127.0.0.1"), port=int(os.getenv("ZMWALL_PORT", "8080")), threads=8)
 
 
