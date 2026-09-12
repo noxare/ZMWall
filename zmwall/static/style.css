@@ -22,6 +22,9 @@ header p, .section-head p, small { color: var(--muted); }
 .live { color: var(--accent); font-size: 13px; }
 .header-actions { display: flex; align-items: center; gap: 14px; }
 .update-button { padding: 8px 12px; background: #f2c94c; color: #211b06; }
+.update-button.secondary { background: #24323e; color: var(--text); }
+.update-button.update-error { background: #462427; color: #ffc0c0; }
+.update-button:disabled { cursor: wait; opacity: .75; }
 .update-progress { color: #f2c94c; font-size: 13px; }
 main { max-width: 1440px; margin: auto; padding: 28px 24px 60px; }
 section { margin-bottom: 42px; }

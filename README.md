@@ -1,6 +1,6 @@
 # ZM Wall
 
-Aktueller Entwicklungsstand: **0.2.0-beta.11**
+Aktueller Entwicklungsstand: **0.2.0-beta.12**
 
 ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigurierbare RTSP-Videowand für ZoneMinder. Jeder physische Monitor kann ein eigenes Raster und eine eigene Kamerabelegung erhalten. Die Streams werden direkt mit `mpv` wiedergegeben; die Weboberfläche dient nur zur Verwaltung.
 
@@ -155,7 +155,7 @@ sudo ./update.sh
 
 Das Skript prüft Repository und Branch, akzeptiert ausschließlich Fast-Forward-Updates von `noxare/ZMWall`, aktualisiert die Python-Abhängigkeiten und startet danach die grafische ZMWall-Sitzung neu. `/etc/zmwall.env`, Zertifikate und die Datenbank unter `/var/lib/zmwall` bleiben dabei erhalten. Bei lokalen Änderungen an verwalteten Programmdateien bricht das Update ab, statt diese zu überschreiben.
 
-Die Weboberfläche prüft im Hintergrund alle fünf Minuten auf neue Commits in `main`. Ist ein Fast-Forward-Update verfügbar, erscheint im Kopfbereich die Schaltfläche **Update verfügbar · installieren**. Erst nach der Bestätigung wird das Update ausgeführt. Dabei wird nur der ZMWall-Web-/Player-Prozess beendet und durch den vorhandenen Openbox-Wächter automatisch neu gestartet; der Rechner, LightDM und Xorg werden nicht neu gestartet. Das Update-Protokoll liegt unter `/var/lib/zmwall/update.log`.
+Die Update-Funktion ist oben rechts in der Kopfzeile jederzeit sichtbar und erlaubt auch eine sofortige manuelle Prüfung. Zusätzlich prüft die Weboberfläche im Hintergrund alle fünf Minuten auf neue Commits in `main`. Ist ein Fast-Forward-Update verfügbar, wechselt die Schaltfläche zu **Update verfügbar · installieren**. Erst nach der Bestätigung wird das Update ausgeführt. Dabei wird nur der ZMWall-Web-/Player-Prozess beendet und durch den vorhandenen Openbox-Wächter automatisch neu gestartet; der Rechner, LightDM und Xorg werden nicht neu gestartet. Das Update-Protokoll liegt unter `/var/lib/zmwall/update.log`.
 
 ## Sicherheit
 

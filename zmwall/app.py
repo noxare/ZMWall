@@ -197,6 +197,14 @@ def get_update_status():
     return jsonify({**update_state, "version": __version__})
 
 
+@app.post("/updates/check")
+@login_required
+def check_updates_now():
+    status = check_for_update()
+    flash(status["message"], "error" if status["state"] == "error" else "ok")
+    return redirect(url_for("index"))
+
+
 @app.post("/updates/install")
 @login_required
 def install_update():

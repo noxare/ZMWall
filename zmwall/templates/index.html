@@ -19,6 +19,16 @@
         </form>
       {% elif update_status.state == 'updating' %}
         <span class="update-progress">Update wird installiert …</span>
+      {% elif update_status.state == 'checking' %}
+        <button class="update-button secondary" disabled>Prüfe auf Updates …</button>
+      {% elif update_status.state == 'error' %}
+        <form method="post" action="{{ url_for('check_updates_now') }}" title="{{ update_status.message }}">
+          <button class="update-button update-error">Update-Prüfung wiederholen</button>
+        </form>
+      {% else %}
+        <form method="post" action="{{ url_for('check_updates_now') }}">
+          <button class="update-button secondary">Auf Updates prüfen</button>
+        </form>
       {% endif %}
     </div>
     <span class="live">● Anzeige aktiv</span>
