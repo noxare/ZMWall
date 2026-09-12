@@ -176,6 +176,10 @@ def test_player_manager_prepares_current_and_upcoming_stream(monkeypatch):
         monkeypatch.setattr(core.time, "monotonic", lambda: 0)
         current, upcoming = core.PlayerManager(db_path).desired()[f"{screen_id}:0"]
         assert "/tor?" in current.url
+        assert "--vo=gpu" in current.command
+        assert "--gpu-api=opengl" in current.command
+        assert "--gpu-context=x11egl,x11" in current.command
+        assert "--hwdec=vaapi-copy,auto-copy-safe" in current.command
         assert upcoming is not None
         assert "/hof?" in upcoming.url
 
