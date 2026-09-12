@@ -12,7 +12,7 @@ ENV_FILE=/etc/zmwall.env
 SOURCE_DIR=$(cd "$(dirname "$0")" && pwd)
 
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y python3-venv mpv xorg openbox lightdm x11-xserver-utils xdotool unclutter openssl nginx
+DEBIAN_FRONTEND=noninteractive apt-get install -y git python3-venv mpv xorg openbox lightdm x11-xserver-utils xdotool unclutter openssl nginx
 
 id "$APP_USER" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash "$APP_USER"
 install -d -m 0755 "$APP_DIR"

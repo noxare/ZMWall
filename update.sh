@@ -63,11 +63,10 @@ fi
 
 new_revision=$(run_git rev-parse "origin/$EXPECTED_BRANCH")
 if [ "$old_revision" = "$new_revision" ]; then
-  echo "ZMWall ist bereits aktuell. Es ist kein Neustart erforderlich."
-  exit 0
+  echo "ZMWall ist bereits aktuell."
+else
+  run_git merge --ff-only "origin/$EXPECTED_BRANCH"
 fi
-
-run_git merge --ff-only "origin/$EXPECTED_BRANCH"
 
 if [ ! -x "$APP_DIR/.venv/bin/pip" ]; then
   echo "Fehler: Die Python-Umgebung unter $APP_DIR/.venv fehlt."
@@ -84,5 +83,8 @@ chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 echo "Starte die ZMWall-Anzeige neu ..."
 systemctl restart lightdm
 
-echo "Update abgeschlossen: ${old_revision:0:8} -> ${new_revision:0:8}"
-
+if [ "$old_revision" = "$new_revision" ]; then
+  echo "Prüfung abgeschlossen; die ZMWall-Anzeige wurde neu gestartet."
+else
+  echo "Update abgeschlossen: ${old_revision:0:8} -> ${new_revision:0:8}"
+fi

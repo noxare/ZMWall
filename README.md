@@ -37,8 +37,10 @@ Die ZoneMinder-API muss unter **Options → System → OPT_USE_API** aktiviert s
 Auf dem frisch installierten Debian:
 
 ```bash
-tar -xzf zmwall.tar.gz
-cd zmwall
+sudo apt-get update
+sudo apt-get install -y git
+git clone https://github.com/noxare/ZMWall.git
+cd ZMWall
 sudo bash install.sh
 sudo reboot
 ```
@@ -143,7 +145,15 @@ Eine installierte ZM Wall wird direkt aus dem offiziellen Git-Repository aktuali
 sudo /opt/zmwall/update.sh
 ```
 
-Das Skript prüft Repository und Branch, akzeptiert ausschließlich Fast-Forward-Updates von `noxare/ZMWall`, aktualisiert bei Bedarf die Python-Abhängigkeiten und startet danach die grafische ZMWall-Sitzung neu. `/etc/zmwall.env`, Zertifikate und die Datenbank unter `/var/lib/zmwall` bleiben dabei erhalten. Bei lokalen Änderungen an verwalteten Programmdateien bricht das Update ab, statt diese zu überschreiben.
+Beim erstmaligen Wechsel von einer älteren Version, in der `update.sh` noch nicht enthalten ist:
+
+```bash
+cd /opt/zmwall
+sudo -u zmwall git pull --ff-only origin main
+sudo ./update.sh
+```
+
+Das Skript prüft Repository und Branch, akzeptiert ausschließlich Fast-Forward-Updates von `noxare/ZMWall`, aktualisiert die Python-Abhängigkeiten und startet danach die grafische ZMWall-Sitzung neu. `/etc/zmwall.env`, Zertifikate und die Datenbank unter `/var/lib/zmwall` bleiben dabei erhalten. Bei lokalen Änderungen an verwalteten Programmdateien bricht das Update ab, statt diese zu überschreiben.
 
 ## Sicherheit
 
