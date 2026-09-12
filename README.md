@@ -1,6 +1,6 @@
 # ZM Wall
 
-Aktueller Entwicklungsstand: **0.2.0-beta.7**
+Aktueller Entwicklungsstand: **0.2.0-beta.8**
 
 ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigurierbare RTSP-Videowand für ZoneMinder. Jeder physische Monitor kann ein eigenes Raster und eine eigene Kamerabelegung erhalten. Die Streams werden direkt mit `mpv` wiedergegeben; die Weboberfläche dient nur zur Verwaltung.
 
@@ -21,7 +21,7 @@ ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigu
 - abweichender RTSP-Host oder Streamname pro Kamera möglich
 - Erstkonfiguration der Weboberfläche ohne lokales Kennwort
 - nach erfolgreicher ZoneMinder-Erkennung Anmeldung direkt gegen ZoneMinder
-- direkter RTSP-Abruf mit `mpv`, VA-API-Hardware-Decoding und TCP-Transport
+- direkter RTSP-Abruf mit `mpv`, Hardware-Decoding und TCP-Transport
 
 ## Voraussetzungen
 
@@ -100,8 +100,6 @@ Zusätzlich kann für Sonderfälle weiterhin in der Kameraliste ein individuelle
 ZM Wall überwacht jeden gestarteten `mpv`-Prozess. Bricht ein RTSP-Stream ab oder läuft die Netzwerk-Lesezeitüberschreitung ab, wird der Player beendet und in kurzen Abständen erneut gestartet. Sobald Kamera und RTSP-Server wieder erreichbar sind, erscheint das Bild automatisch; ein Neustart der Wall ist nicht erforderlich.
 
 Bei rotierenden Positionen wird der nächste RTSP-Stream parallel und verdeckt aufgebaut. ZM Wall prüft ihn bereits während des laufenden Intervalls fortlaufend über die `mpv`-Steuerschnittstelle. Das Fenster muss echte Videoframes rendern und mindestens 0,75 Sekunden stabil bereit sein. Beim Wechsel wird es über seine von `mpv` gemeldete X11-Fenster-ID synchron aktiviert und angehoben. Das alte Fenster bleibt noch 100 Millisekunden als Abdeckung bestehen und wird danach immer beendet. Dadurch kann eine fehlgeschlagene Openbox-Stapeländerung die Rotation nicht mehr blockieren; gleichzeitig erhält X11 Zeit, das bereits gerenderte neue Fenster darzustellen, bevor der Hintergrund freigelegt werden könnte. Ist die nächste Kamera noch nicht bereit, bleibt weiterhin das bisherige Bild sichtbar. Eine rotierende Position benötigt dadurch zeitweise zwei parallele Decoder und RTSP-Verbindungen.
-
-Für die Videoausgabe verwendet ZM Wall ausdrücklich den klassischen `mpv`-GPU-Renderer mit OpenGL und X11/EGL. Die automatische Vulkan-Auswahl wird vermieden, da ältere Intel-GPUs bei VA-API-Oberflächen mit DRM-Modifiern schwarze Frames zeigen können. `vaapi-copy` übernimmt weiterhin die Videodekodierung in der GPU, kopiert das dekodierte Bild jedoch vor der OpenGL-Ausgabe in einen kompatiblen Speicherbereich. Falls VA-API nicht verfügbar ist, versucht `auto-copy-safe` einen anderen sicheren Hardwaredecoder und fällt andernfalls auf Software-Decoding zurück.
 
 Jede Grid-Position kann eine oder mehrere Kameras enthalten. Bei mehreren Kameras wechselt ZM Wall nach dem für das betreffende Display eingestellten Intervall zur nächsten Kamera und beginnt nach der letzten wieder von vorn. Der Mindestwert beträgt fünf Sekunden. Ein einzelner Stream bleibt dauerhaft sichtbar.
 

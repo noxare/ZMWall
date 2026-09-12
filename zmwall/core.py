@@ -405,10 +405,7 @@ class PlayerManager:
                             f"--screen-name={screen['output_name']}",
                             "--keepaspect=no", "--keepaspect-window=no", "--panscan=0",
                             "--video-zoom=0", "--no-osc", "--cursor-autohide=always",
-                            "--vo=gpu", "--gpu-api=opengl",
-                            "--gpu-context=x11egl,x11",
-                            "--hwdec=vaapi-copy,auto-copy-safe",
-                            "--profile=low-latency",
+                            "--hwdec=auto-safe", "--profile=low-latency",
                             "--demuxer-lavf-o=rtsp_transport=tcp,rw_timeout=15000000",
                             f"--geometry={geometry}", "--really-quiet", "--playlist=-",
                         ]
