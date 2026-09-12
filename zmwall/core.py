@@ -18,7 +18,7 @@ import requests
 
 
 PRELOAD_STABLE_SECONDS = 0.75
-PLAYER_RETIRE_GRACE_SECONDS = 2.0
+WINDOW_SWITCH_SETTLE_SECONDS = 0.10
 
 
 SCHEMA = """
@@ -322,6 +322,7 @@ class Player:
     process: subprocess.Popen
     ipc_path: str
     ready_since: float | None = None
+    window_id: str | None = None
     is_ontop: bool = False
 
 
@@ -330,7 +331,6 @@ class PlayerManager:
         self.db_path = db_path
         self.players: dict[str, Player] = {}
         self.preloads: dict[str, Player] = {}
-        self.retired: list[tuple[float, Player]] = []
         self.stop_event = threading.Event()
         self.reload_event = threading.Event()
         self._ipc_counter = 0
@@ -351,13 +351,8 @@ class PlayerManager:
 
     def close(self) -> None:
         self.stop_event.set()
-        for player in [
-            *self.players.values(),
-            *self.preloads.values(),
-            *(player for _, player in self.retired),
-        ]:
+        for player in [*self.players.values(), *self.preloads.values()]:
             self._terminate(player)
-        self.retired.clear()
 
     def desired(self) -> dict[str, tuple[StreamSpec, StreamSpec | None]]:
         outputs = {str(item["name"]): item for item in detect_outputs()}
@@ -493,6 +488,11 @@ class PlayerManager:
             player.ready_since = None
             return False
 
+        if player.window_id is None:
+            window = self._ipc(player, ["get_property", "window-id"])
+            if window and window.get("error") == "success" and window.get("data") is not None:
+                player.window_id = str(window["data"])
+
         now = time.monotonic()
         if player.ready_since is None:
             player.ready_since = now
@@ -500,78 +500,74 @@ class PlayerManager:
         return now - player.ready_since >= PRELOAD_STABLE_SECONDS
 
     def _raise(self, player: Player) -> bool:
-        window = self._ipc(player, ["get_property", "window-id"])
-        window_id = window.get("data") if window and window.get("error") == "success" else None
         try:
-            if window_id is not None:
-                result = subprocess.run(
-                    ["xdotool", "windowraise", str(window_id)],
-                    check=False, capture_output=True, timeout=1,
+            if player.window_id is None:
+                window = self._ipc(player, ["get_property", "window-id"])
+                if window and window.get("error") == "success" and window.get("data") is not None:
+                    player.window_id = str(window["data"])
+            if player.window_id is None:
+                search = subprocess.run(
+                    ["xdotool", "search", "--onlyvisible", "--pid", str(player.process.pid)],
+                    check=False, capture_output=True, text=True, timeout=1,
                 )
-            else:
-                result = subprocess.run(
-                    [
-                        "xdotool", "search", "--onlyvisible", "--pid",
-                        str(player.process.pid), "windowraise", "%@",
-                    ],
-                    check=False, capture_output=True, timeout=1,
+                matches = search.stdout.split() if search.returncode == 0 else []
+                if not matches:
+                    print(
+                        f"ZM Wall: kein X11-Fenster für mpv PID {player.process.pid} gefunden",
+                        flush=True,
+                    )
+                    return False
+                player.window_id = matches[-1]
+
+            raised = subprocess.run(
+                ["xdotool", "windowraise", player.window_id],
+                check=False, capture_output=True, timeout=1,
+            )
+            activated = subprocess.run(
+                ["xdotool", "windowactivate", "--sync", player.window_id],
+                check=False, capture_output=True, timeout=1,
+            )
+            success = raised.returncode == 0 and activated.returncode == 0
+            if not success:
+                print(
+                    "ZM Wall: X11-Fensterwechsel fehlgeschlagen "
+                    f"(Fenster {player.window_id}, raise={raised.returncode}, "
+                    f"activate={activated.returncode})",
+                    flush=True,
                 )
-            return result.returncode == 0
-        except (OSError, subprocess.SubprocessError):
+            return success
+        except (OSError, subprocess.SubprocessError) as error:
+            print(
+                f"ZM Wall: X11-Fensterwechsel nicht ausführbar ({type(error).__name__})",
+                flush=True,
+            )
             return False
 
-    def _promote(self, key: str, player: Player, upcoming: StreamSpec | None) -> bool:
+    def _promote(self, key: str, player: Player) -> None:
         old = self.players.get(key)
-        # Changing the EWMH ontop state can itself take a compositor cycle. Do
-        # it only once per window; reused double-buffer windows merely need to
-        # be raised on subsequent rotations.
         if not player.is_ontop:
-            # mpv can apply this property even when its IPC reply arrives after
-            # our short timeout, so a missing acknowledgement must not block
-            # the rotation.
             self._ipc(player, ["set_property", "ontop", True])
             player.is_ontop = True
         raised = self._raise(player)
         if not raised and old is not None and old is not player:
-            # Some Openbox/X11 combinations do not expose a PID-searchable
-            # window to xdotool. Demote the old window and retry with mpv's
-            # direct window-id; either operation is enough to expose the fully
-            # rendered replacement without aborting the logical rotation.
+            # The old implementation proved that revealing the preloaded
+            # window by removing its predecessor works on this hardware. Keep
+            # that reliable fallback if Openbox refuses explicit activation.
             self._ipc(old, ["set_property", "ontop", False])
             old.is_ontop = False
-            self._ipc(player, ["set_property", "ontop", True])
             self._raise(player)
 
+        # Give Openbox and the X server a short presentation cycle while the
+        # old, already rendered window still covers the tile. Unlike persistent
+        # double buffering, the old window is then always removed, so a failed
+        # stacking request cannot freeze rotation.
+        time.sleep(WINDOW_SWITCH_SETTLE_SECONDS)
         self.players[key] = player
         self.preloads.pop(key, None)
         if old is not None and old is not player:
-            if upcoming is not None and old.signature == upcoming.signature:
-                # With two cameras, keep both decoded windows alive and only
-                # alternate their stacking order. No RTSP reconnect or window
-                # recreation is needed after the first cycle.
-                old.ready_since = time.monotonic() - PRELOAD_STABLE_SECONDS
-                self.preloads[key] = old
-            else:
-                # Keep the covered window alive until Openbox has certainly
-                # applied the new stacking order. Immediate destruction can
-                # briefly expose the black X root window.
-                self.retired.append(
-                    (time.monotonic() + PLAYER_RETIRE_GRACE_SECONDS, old)
-                )
-        return True
-
-    def _cleanup_retired(self) -> None:
-        now = time.monotonic()
-        keep: list[tuple[float, Player]] = []
-        for deadline, player in self.retired:
-            if deadline <= now or player.process.poll() is not None:
-                self._terminate(player)
-            else:
-                keep.append((deadline, player))
-        self.retired = keep
+            self._terminate(old)
 
     def reconcile(self) -> None:
-        self._cleanup_retired()
         try:
             wanted = self.desired()
         except Exception:
@@ -597,9 +593,9 @@ class PlayerManager:
 
             if not active:
                 if preload and preload.signature == current.signature and self._ready(preload):
-                    if self._promote(key, preload, upcoming):
-                        active = preload
-                        preload = self.preloads.get(key)
+                    self._promote(key, preload)
+                    active = preload
+                    preload = None
                 else:
                     if preload:
                         self._terminate(preload)
@@ -614,9 +610,9 @@ class PlayerManager:
                 # decoded a real frame.
                 if preload and preload.signature == current.signature:
                     if self._ready(preload):
-                        if self._promote(key, preload, upcoming):
-                            active = preload
-                            preload = self.preloads.get(key)
+                        self._promote(key, preload)
+                        active = preload
+                        preload = None
                 else:
                     if preload:
                         self._terminate(preload)

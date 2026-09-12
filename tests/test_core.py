@@ -209,70 +209,47 @@ def test_rotation_keeps_old_player_until_preload_has_video(monkeypatch):
 
     monkeypatch.setattr(manager, "_ready", lambda player: True)
     monkeypatch.setattr(manager, "_ipc", lambda player, command: {"error": "success"})
-    monkeypatch.setattr(
-        core.subprocess,
-        "run",
-        lambda *args, **kwargs: SimpleNamespace(returncode=0),
-    )
+    monkeypatch.setattr(manager, "_raise", lambda player: True)
+    monkeypatch.setattr(core.time, "sleep", lambda seconds: None)
     manager.reconcile()
     assert manager.players["1:0"] is preloaded
-    assert not old_process.terminated
-    assert manager.retired[0][1] is old
-
-    manager.retired[0] = (0, old)
-    manager.reconcile()
     assert old_process.terminated
 
 
-def test_two_camera_rotation_reuses_both_ontop_windows(monkeypatch):
+def test_window_raise_uses_mpv_window_id_and_waits_for_activation(monkeypatch):
     class FakeProcess:
-        def __init__(self, pid):
-            self.pid = pid
-
         def poll(self):
             return None
 
-        def terminate(self):
-            raise AssertionError("reused double-buffer player must stay alive")
-
     manager = core.PlayerManager("unused.db")
-    first = core.Player(
-        "first", FakeProcess(10), "/tmp/not-created-first.sock", is_ontop=True
+    player = core.Player(
+        "next", FakeProcess(), "/tmp/not-created-next.sock", window_id="4242"
     )
-    second = core.Player("second", FakeProcess(11), "/tmp/not-created-second.sock")
-    first_spec = core.StreamSpec("first", ["mpv"], "rtsp://first")
-    second_spec = core.StreamSpec("second", ["mpv"], "rtsp://second")
-    ontop_calls = []
+    calls = []
 
-    def fake_ipc(player, command):
-        if command[:2] == ["set_property", "ontop"]:
-            ontop_calls.append(player.signature)
-        return {"error": "success"}
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stdout="")
 
-    monkeypatch.setattr(manager, "_ipc", fake_ipc)
-    monkeypatch.setattr(manager, "_raise", lambda player: True)
-    manager.players["1:0"] = first
-    manager.preloads["1:0"] = second
-
-    assert manager._promote("1:0", second, first_spec)
-    assert manager.players["1:0"] is second
-    assert manager.preloads["1:0"] is first
-    assert not manager.retired
-
-    assert manager._promote("1:0", first, second_spec)
-    assert manager.players["1:0"] is first
-    assert manager.preloads["1:0"] is second
-    assert not manager.retired
-    assert ontop_calls == ["second"]
+    monkeypatch.setattr(core.subprocess, "run", fake_run)
+    assert manager._raise(player)
+    assert calls == [
+        ["xdotool", "windowraise", "4242"],
+        ["xdotool", "windowactivate", "--sync", "4242"],
+    ]
 
 
 def test_window_tool_timeout_does_not_block_rotation(monkeypatch):
     class FakeProcess:
         def __init__(self, pid):
             self.pid = pid
+            self.terminated = False
 
         def poll(self):
             return None
+
+        def terminate(self):
+            self.terminated = True
 
     manager = core.PlayerManager("unused.db")
     old = core.Player(
@@ -285,11 +262,14 @@ def test_window_tool_timeout_does_not_block_rotation(monkeypatch):
     manager.preloads["1:0"] = replacement
     monkeypatch.setattr(manager, "_ipc", lambda player, command: None)
     monkeypatch.setattr(manager, "_raise", lambda player: False)
+    sleeps = []
+    monkeypatch.setattr(core.time, "sleep", lambda seconds: sleeps.append(seconds))
 
-    assert manager._promote("1:0", replacement, None)
+    manager._promote("1:0", replacement)
     assert manager.players["1:0"] is replacement
     assert not old.is_ontop
-    assert manager.retired[0][1] is old
+    assert old.process.terminated
+    assert sleeps == [core.WINDOW_SWITCH_SETTLE_SECONDS]
 
 
 def test_preload_must_render_frames_stably_before_it_is_ready(monkeypatch):
