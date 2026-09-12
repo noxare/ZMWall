@@ -1,6 +1,6 @@
 # ZM Wall
 
-Aktueller Entwicklungsstand: **0.2.0-beta.14**
+Aktueller Entwicklungsstand: **0.2.0-beta.15**
 
 ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigurierbare RTSP-Videowand für ZoneMinder. Jeder physische Monitor kann ein eigenes Raster und eine eigene Kamerabelegung erhalten. Die Streams werden direkt mit `mpv` wiedergegeben; die Weboberfläche dient nur zur Verwaltung.
 
@@ -106,6 +106,8 @@ Bei rotierenden Positionen wird der nächste RTSP-Stream fünf Sekunden vor dem 
 Ab Version `0.2.0-beta.13` protokolliert ZM Wall jeden Wechsel mit Millisekunden-Zeitstempeln. Erfasst werden Player-Start, erstes decodiertes Frame, verwendetes Hardware-Decoding, Preload-Bereitschaft, X11-Anhebung und Beenden des alten Players. Kamera-Zugangsdaten werden dabei nicht ausgegeben.
 
 Ab Version `0.2.0-beta.14` besitzt jede Grid-Position ein dauerhaftes, nicht von Openbox verwaltetes X11-Containerfenster. Die aktiven und vorgepufferten mpv-Instanzen rendern in getrennte Kindflächen dieses Containers. Der Wechsel erfolgt direkt innerhalb des X-Servers; `xdotool` und ein Wechsel zwischen eigenständigen Top-Level-Fenstern sind dafür nicht mehr erforderlich. Kann der eingebettete Modus auf einem System nicht initialisiert werden, fällt ZM Wall automatisch auf die bisherige Fenstersteuerung zurück.
+
+Ab Version `0.2.0-beta.15` enthält der Diagnoseeintrag für das erste Frame zusätzlich Videocodec, Codecprofil, Decoder, Auflösung, Pixelformat sowie den aktiven Hardwaredecoder und dessen Ausgabe-Interop. Damit lassen sich nicht hardwarebeschleunigte Kamerastreams erkennen, ohne RTSP-Zugangsdaten zu protokollieren.
 
 Jede Grid-Position kann eine oder mehrere Kameras enthalten. Bei mehreren Kameras wechselt ZM Wall nach dem für das betreffende Display eingestellten Intervall zur nächsten Kamera und beginnt nach der letzten wieder von vorn. Der Mindestwert beträgt fünf Sekunden. Ein einzelner Stream bleibt dauerhaft sichtbar.
 

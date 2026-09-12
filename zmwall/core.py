@@ -688,15 +688,44 @@ class PlayerManager:
         if player.ready_since is None:
             player.ready_since = now
             hardware = self._ipc(player, ["get_property", "hwdec-current"])
+            interop = self._ipc(player, ["get_property", "hwdec-interop"])
+            track_list = self._ipc(player, ["get_property", "track-list"])
             hardware_name = (
                 hardware.get("data")
                 if hardware and hardware.get("error") == "success"
                 else "unknown"
             )
+            interop_name = (
+                interop.get("data")
+                if interop and interop.get("error") == "success"
+                else "none"
+            )
+            tracks = (
+                track_list.get("data")
+                if track_list and track_list.get("error") == "success"
+                and isinstance(track_list.get("data"), list)
+                else []
+            )
+            video_track = next(
+                (
+                    track for track in tracks
+                    if track.get("type") == "video"
+                    and track.get("selected") in (True, "yes")
+                ),
+                {},
+            )
+            decoded_params = video_params.get("data", {})
             switch_log(
                 player.tile_key, player.label, "first-frame",
                 pid=getattr(player.process, "pid", "unknown"),
-                window=player.window_id or "unknown", hwdec=hardware_name,
+                window=player.window_id or "unknown",
+                codec=video_track.get("codec", "unknown"),
+                profile=video_track.get("codec-profile", "unknown"),
+                decoder=video_track.get("decoder", "unknown"),
+                size=f"{decoded_params.get('w', '?')}x{decoded_params.get('h', '?')}",
+                pixelformat=decoded_params.get("pixelformat", "unknown"),
+                hw_pixelformat=decoded_params.get("hw-pixelformat", "none"),
+                hwdec=hardware_name, interop=interop_name,
                 launch_ms=round((now - player.launched_at) * 1000),
                 probe_ms=round((now - probe_started) * 1000),
             )
