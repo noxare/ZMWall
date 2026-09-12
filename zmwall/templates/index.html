@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="{{ language }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,30 +9,44 @@
   <script defer src="{{ url_for('static', filename='updates.js') }}"></script>
   <script defer src="{{ url_for('static', filename='runtime.js') }}"></script>
 </head>
-<body data-version="{{ version }}">
+<body data-version="{{ version }}"
+      data-i18n-waiting="{{ t('waiting') }}" data-i18n-camera-inactive="{{ t('camera_inactive') }}"
+      data-i18n-buffering="{{ t('buffering') }}" data-i18n-decoder-detecting="{{ t('decoder_detecting') }}"
+      data-i18n-hardware-decoding="{{ t('hardware_decoding', device='{device}', method='{method}') }}"
+      data-i18n-software-decoding="{{ t('software_decoding', device='{device}') }}"
+      data-i18n-hidden-preload="{{ t('hidden_preload', resource='{resource}') }}"
+      data-i18n-all-assigned="{{ t('all_assigned') }}">
 <header>
-  <div class="brand"><h1>ZM Wall</h1><p>ZoneMinder-RTSP-Videowand · {{ version }}</p><a class="diagnostics-link" href="{{ url_for('diagnostics') }}">Diagnose öffnen</a></div>
+  <div class="brand"><h1>ZM Wall</h1><p>{{ t('wall_subtitle') }} · {{ version }}</p><a class="diagnostics-link" href="{{ url_for('diagnostics') }}">{{ t('diagnostics_open') }}</a></div>
   <div class="header-actions">
+    <form method="post" action="{{ url_for('set_language') }}" class="language-form">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <label><span>{{ t('language') }}</span><select name="language" onchange="this.form.submit()">
+        <option value="auto" {% if language_choice == 'auto' %}selected{% endif %}>{{ t('language_auto') }}</option>
+        <option value="de" {% if language_choice == 'de' %}selected{% endif %}>Deutsch</option>
+        <option value="en" {% if language_choice == 'en' %}selected{% endif %}>English</option>
+      </select></label>
+    </form>
     <div id="update-control" data-state="{{ update_status.state }}">
       {% if update_status.state == 'available' %}
-        <form method="post" action="{{ url_for('install_update') }}" onsubmit="return confirm('ZMWall jetzt aktualisieren? Die Streams werden dabei kurz neu gestartet.')">
-          <button class="update-button">Update verfügbar · installieren</button>
+        <form method="post" action="{{ url_for('install_update') }}" onsubmit='return confirm({{ t("update_install_confirm")|tojson }})'>
+          <button class="update-button">{{ t('update_available_install') }}</button>
         </form>
       {% elif update_status.state == 'updating' %}
-        <span class="update-progress">Update wird installiert …</span>
+        <span class="update-progress">{{ t('update_installing') }}</span>
       {% elif update_status.state == 'checking' %}
-        <button class="update-button secondary" disabled>Prüfe auf Updates …</button>
+        <button class="update-button secondary" disabled>{{ t('update_checking') }}</button>
       {% elif update_status.state == 'error' %}
         <form method="post" action="{{ url_for('check_updates_now') }}" title="{{ update_status.message }}">
-          <button class="update-button update-error">Update-Prüfung wiederholen</button>
+          <button class="update-button update-error">{{ t('update_retry') }}</button>
         </form>
       {% else %}
         <form method="post" action="{{ url_for('check_updates_now') }}">
-          <button class="update-button secondary">Auf Updates prüfen</button>
+          <button class="update-button secondary">{{ t('update_check') }}</button>
         </form>
       {% endif %}
     </div>
-    <span class="live">● Anzeige aktiv</span>
+    <span class="live">{{ t('display_active') }}</span>
   </div>
 </header>
 <main>
@@ -40,28 +54,28 @@
 
   <section>
     <div class="section-head">
-      <div><h2>Anzeige</h2><p>Kameras aus dem Vorrat in eine Grid-Position ziehen. Die Reihenfolge innerhalb einer Position bestimmt die Rotation.</p></div>
+      <div><h2>{{ t('display') }}</h2><p>{{ t('display_help') }}</p></div>
     </div>
 
     <div class="layout-workspace">
       <aside class="camera-pool panel">
         <div class="pool-head">
-          <div><h3>Verfügbare Kameras</h3><small><span id="available-count">{{ available_cameras|length }}</span> nicht zugeordnet</small></div>
-          <input id="camera-filter" type="search" placeholder="Kamera suchen…" aria-label="Kamera suchen">
+          <div><h3>{{ t('available_cameras') }}</h3><small><span id="available-count">{{ available_cameras|length }}</span> {{ t('unassigned_count') }}</small></div>
+          <input id="camera-filter" type="search" placeholder="{{ t('camera_search') }}" aria-label="{{ t('camera_search_label') }}">
         </div>
         <div id="camera-pool" class="camera-pool-list dropzone" data-dropzone="pool">
           {% for camera in available_cameras %}
             <div class="camera-chip" draggable="true" tabindex="0"
                  data-camera-key="{{ camera.camera_key }}" data-camera-search="{{ (camera.name ~ ' ' ~ (camera.server_name or '') ~ ' ' ~ camera.zm_id)|lower }}">
-              <span><strong>{{ camera.name }}</strong><small>{{ camera.server_name or 'lokaler Server' }} · ID {{ camera.zm_id }}</small></span>
-              <button type="button" class="unassign" title="Zuordnung entfernen" aria-label="{{ camera.name }} zurücklegen">×</button>
+              <span><strong>{{ camera.name }}</strong><small>{{ camera.server_name or t('local_server') }} · ID {{ camera.zm_id }}</small></span>
+              <button type="button" class="unassign" title="{{ t('remove_assignment') }}" aria-label="{{ camera.name }} {{ t('put_back') }}">×</button>
             </div>
           {% else %}
-            <p class="pool-empty">Alle RTSP-Kameras sind zugeordnet.</p>
+            <p class="pool-empty">{{ t('all_assigned') }}</p>
           {% endfor %}
-          <p id="filter-empty" class="filter-empty" hidden>Keine passende Kamera gefunden.</p>
+          <p id="filter-empty" class="filter-empty" hidden>{{ t('no_camera_found') }}</p>
         </div>
-        <p class="touch-help">Auf Touch-Geräten: Kamera antippen, danach die gewünschte Position antippen.</p>
+        <p class="touch-help">{{ t('touch_help') }}</p>
       </aside>
 
       <form id="layout-form" method="post" action="{{ url_for('save_layouts') }}" class="screen-layouts">
@@ -70,18 +84,18 @@
           <article class="card screen-card">
             <div class="card-head">
               <div><h3>{{ screen.output_name }}</h3><small>{{ screen.rows }} × {{ screen.cols }}</small></div>
-              <div class="monitor-hardware" title="Auf dem Anzeigerechner erkannte Decoder-Hardware">
+              <div class="monitor-hardware" title="{{ t('detected_hardware') }}">
                 <span><b>CPU</b> {{ runtime_hardware.cpu }}</span>
                 <span><b>GPU</b> {{ runtime_hardware.gpu }}</span>
               </div>
               <button type="submit" class="link danger" formaction="{{ url_for('delete_screen', screen_id=screen.id) }}"
-                      formnovalidate onclick="return confirm('Anzeige wirklich entfernen?')">Anzeige entfernen</button>
+                      formnovalidate onclick='return confirm({{ t("remove_display_confirm")|tojson }})'>{{ t('remove_display') }}</button>
             </div>
             <div class="screen-settings">
-              <label>Zeilen<input type="number" name="rows_{{ screen.id }}" min="1" max="8" value="{{ screen.rows }}"></label>
-              <label>Spalten<input type="number" name="cols_{{ screen.id }}" min="1" max="8" value="{{ screen.cols }}"></label>
-              <label>Wechselintervall
-                <span class="input-suffix"><input type="number" name="rotation_seconds_{{ screen.id }}" min="5" max="86400" value="{{ screen.rotation_seconds }}"><span>Sek.</span></span>
+              <label>{{ t('rows') }}<input type="number" name="rows_{{ screen.id }}" min="1" max="8" value="{{ screen.rows }}"></label>
+              <label>{{ t('columns') }}<input type="number" name="cols_{{ screen.id }}" min="1" max="8" value="{{ screen.cols }}"></label>
+              <label>{{ t('rotation_interval') }}
+                <span class="input-suffix"><input type="number" name="rotation_seconds_{{ screen.id }}" min="5" max="86400" value="{{ screen.rotation_seconds }}"><span>{{ t('seconds_short') }}</span></span>
               </label>
             </div>
             <div class="grid" style="--cols:{{ screen.cols }}">
@@ -93,89 +107,89 @@
                     {% for camera in assignments.get(tile_key, []) %}
                       <div class="camera-chip" draggable="true" tabindex="0"
                            data-camera-key="{{ camera.camera_key }}" data-camera-search="{{ (camera.name ~ ' ' ~ (camera.server_name or ''))|lower }}">
-                        <span><strong>{{ camera.name }}</strong><small>{{ camera.server_name or 'lokaler Server' }}</small></span>
-                        <span class="stream-decoder waiting" data-decoder-camera="{{ camera.camera_key }}" title="Diese Kamera ist momentan nicht aktiv">wartet</span>
-                        <button type="button" class="unassign" title="Zuordnung entfernen" aria-label="{{ camera.name }} zurücklegen">×</button>
+                        <span><strong>{{ camera.name }}</strong><small>{{ camera.server_name or t('local_server') }}</small></span>
+                        <span class="stream-decoder waiting" data-decoder-camera="{{ camera.camera_key }}" title="{{ t('camera_inactive') }}">{{ t('waiting') }}</span>
+                        <button type="button" class="unassign" title="{{ t('remove_assignment') }}" aria-label="{{ camera.name }} {{ t('put_back') }}">×</button>
                       </div>
                     {% endfor %}
                   </div>
-                  <p class="tile-placeholder">Kamera hier ablegen</p>
+                  <p class="tile-placeholder">{{ t('drop_camera') }}</p>
                   <input type="hidden" name="tile_{{ screen.id }}_{{ position }}" value="[]">
                 </div>
               {% endfor %}
             </div>
           </article>
         {% else %}
-          <div class="empty">Noch kein Display eingerichtet.</div>
+          <div class="empty">{{ t('no_display') }}</div>
         {% endfor %}
-        {% if screens %}<button type="submit" class="save-layout">Alle Layouts übernehmen</button>{% endif %}
+        {% if screens %}<button type="submit" class="save-layout">{{ t('save_all_layouts') }}</button>{% endif %}
       </form>
     </div>
 
-    <details class="panel"><summary>Display hinzufügen</summary>
+    <details class="panel"><summary>{{ t('add_display') }}</summary>
       <form method="post" action="{{ url_for('save_screen') }}" class="form-grid">
-        <label>Ausgang<select name="output_name" required>{% for output in outputs %}<option>{{ output.name }}</option>{% endfor %}</select></label>
-        <label>Zeilen<input type="number" name="rows" min="1" max="8" value="2"></label>
-        <label>Spalten<input type="number" name="cols" min="1" max="8" value="2"></label>
-        <label>Wechselintervall
-          <span class="input-suffix"><input type="number" name="rotation_seconds" min="5" max="86400" value="30"><span>Sek.</span></span>
+        <label>{{ t('output') }}<select name="output_name" required>{% for output in outputs %}<option>{{ output.name }}</option>{% endfor %}</select></label>
+        <label>{{ t('rows') }}<input type="number" name="rows" min="1" max="8" value="2"></label>
+        <label>{{ t('columns') }}<input type="number" name="cols" min="1" max="8" value="2"></label>
+        <label>{{ t('rotation_interval') }}
+          <span class="input-suffix"><input type="number" name="rotation_seconds" min="5" max="86400" value="30"><span>{{ t('seconds_short') }}</span></span>
         </label>
-        <button>Hinzufügen</button>
+        <button>{{ t('add') }}</button>
       </form>
-      {% if not outputs %}<p class="warning">Keine XRandR-Ausgänge erkannt. Prüfe, ob die Oberfläche auf dem Anzeigerechner unter DISPLAY=:0 läuft.</p>{% endif %}
+      {% if not outputs %}<p class="warning">{{ t('no_outputs') }}</p>{% endif %}
     </details>
   </section>
 
   <section>
-    <div class="section-head"><div><h2>ZoneMinder</h2><p>API-Verbindungen und RTSP-Regeln</p></div></div>
+    <div class="section-head"><div><h2>ZoneMinder</h2><p>{{ t('api_rtsp_rules') }}</p></div></div>
     <div class="cards">
     {% for site in sites %}
       <article class="card">
-        <div class="card-head"><h3>{{ site.name }}</h3><span class="status {% if site.last_error %}bad{% endif %}">{{ site.last_error or 'Verbunden' }}</span></div>
+        <div class="card-head"><h3>{{ site.name }}</h3><span class="status {% if site.last_error %}bad{% endif %}">{{ site.last_error or t('connected') }}</span></div>
         <form method="post" action="{{ url_for('update_site', site_id=site.id) }}" class="form-grid">
-          <label>Name<input name="name" value="{{ site.name }}" required></label>
-          <label>ZoneMinder-URL<input name="base_url" value="{{ site.base_url }}" required></label>
-          <label>ZM-Benutzer<input name="username" value="{{ site.username }}" required></label>
-          <label>Neues ZM-Passwort<input name="password" type="password" placeholder="unverändert lassen"></label>
-          <label>RTSP-Port<input name="rtsp_port" type="number" value="{{ site.rtsp_port }}" required></label>
-          <label>Streamname-Regel<input name="stream_template" value="{{ site.stream_template }}" required><small>Variablen: {id}, {name}, {server_id}</small></label>
-          <label class="wide">RTSP-URL-Vorlage<input name="url_template" value="{{ site.url_template }}" required><small>{host}, {port}, {stream}, {username}, {password}, {id}, {name}</small></label>
-          <label class="check"><input type="checkbox" name="verify_tls" {% if site.verify_tls %}checked{% endif %}> TLS-Zertifikat prüfen</label>
-          <button>Speichern und synchronisieren</button>
+          <label>{{ t('name') }}<input name="name" value="{{ site.name }}" required></label>
+          <label>{{ t('zm_url') }}<input name="base_url" value="{{ site.base_url }}" required></label>
+          <label>{{ t('zm_user') }}<input name="username" value="{{ site.username }}" required></label>
+          <label>{{ t('new_zm_password') }}<input name="password" type="password" placeholder="{{ t('leave_unchanged') }}"></label>
+          <label>{{ t('rtsp_port') }}<input name="rtsp_port" type="number" value="{{ site.rtsp_port }}" required></label>
+          <label>{{ t('stream_rule') }}<input name="stream_template" value="{{ site.stream_template }}" required><small>{{ t('variables') }}: {id}, {name}, {server_id}</small></label>
+          <label class="wide">{{ t('rtsp_url_template') }}<input name="url_template" value="{{ site.url_template }}" required><small>{host}, {port}, {stream}, {username}, {password}, {id}, {name}</small></label>
+          <label class="check"><input type="checkbox" name="verify_tls" {% if site.verify_tls %}checked{% endif %}> {{ t('verify_tls') }}</label>
+          <button>{{ t('save_sync') }}</button>
         </form>
-        <div class="actions"><form method="post" action="{{ url_for('sync', site_id=site.id) }}"><button class="secondary">Jetzt synchronisieren</button></form><form method="post" action="{{ url_for('delete_site', site_id=site.id) }}" onsubmit="return confirm('Verbindung und Kameras löschen?')"><button class="link danger">Löschen</button></form></div>
+        <div class="actions"><form method="post" action="{{ url_for('sync', site_id=site.id) }}"><button class="secondary">{{ t('sync_now') }}</button></form><form method="post" action="{{ url_for('delete_site', site_id=site.id) }}" onsubmit='return confirm({{ t("delete_connection_confirm")|tojson }})'><button class="link danger">{{ t('delete') }}</button></form></div>
         <div class="server-list">
         {% for server in zm_servers if server.site_id == site.id %}
           <form method="post" action="{{ url_for('update_zm_server', site_id=site.id, server_id=server.server_id) }}" class="server-row">
-            <div><strong>{{ server.name }}</strong><small>ID {{ server.server_id }} · {{ server.hostname }} · zuletzt aufgelöst: {{ server.resolved_ip or 'nicht auflösbar' }}</small></div>
-            <label>Fallback-IP<input name="ip_override" value="{{ server.ip_override or '' }}" placeholder="{{ server.resolved_ip or 'z. B. 192.0.2.10' }}"></label>
-            <button class="secondary">Speichern</button>
+            <div><strong>{{ server.name }}</strong><small>ID {{ server.server_id }} · {{ server.hostname }} · {{ t('last_resolved') }}: {{ server.resolved_ip or t('not_resolvable') }}</small></div>
+            <label>{{ t('fallback_ip') }}<input name="ip_override" value="{{ server.ip_override or '' }}" placeholder="{{ server.resolved_ip or '192.0.2.10' }}"></label>
+            <button class="secondary">{{ t('save') }}</button>
           </form>
         {% endfor %}
         </div>
       </article>
     {% endfor %}
     </div>
-    <details class="panel" {% if not sites %}open{% endif %}><summary>ZoneMinder-Verbindung hinzufügen</summary>
+    <details class="panel" {% if not sites %}open{% endif %}><summary>{{ t('add_zm_connection') }}</summary>
       <form method="post" action="{{ url_for('add_site') }}" class="form-grid">
-        <label>Name<input name="name" placeholder="Zentrale" required></label>
-        <label>ZoneMinder-URL<input name="base_url" placeholder="https://zm.example/zm" required></label>
-        <label>ZM-Benutzer<input name="username" required></label><label>ZM-Passwort<input name="password" type="password" required></label>
-        <label>RTSP-Port<input name="rtsp_port" type="number" value="20000" required></label>
-        <label>Streamname-Regel<input name="stream_template" value="{id}" required></label>
-        <label class="wide">RTSP-URL-Vorlage<input name="url_template" value="rtsp://{host}:{port}/{stream}?username={username}&password={password}" required></label>
-        <label class="check"><input type="checkbox" name="verify_tls" checked> TLS-Zertifikat prüfen</label><button>Verbinden</button>
+        <label>{{ t('name') }}<input name="name" placeholder="{{ t('central') }}" required></label>
+        <label>{{ t('zm_url') }}<input name="base_url" placeholder="https://zm.example/zm" required></label>
+        <label>{{ t('zm_user') }}<input name="username" required></label><label>{{ t('zm_password') }}<input name="password" type="password" required></label>
+        <label>{{ t('rtsp_port') }}<input name="rtsp_port" type="number" value="20000" required></label>
+        <label>{{ t('stream_rule') }}<input name="stream_template" value="{id}" required></label>
+        <label class="wide">{{ t('rtsp_url_template') }}<input name="url_template" value="rtsp://{host}:{port}/{stream}?username={username}&password={password}" required></label>
+        <label class="check"><input type="checkbox" name="verify_tls" checked> {{ t('verify_tls') }}</label><button>{{ t('connect') }}</button>
       </form>
     </details>
   </section>
 
   <section>
-    <div class="section-head"><div><h2>Kamera-Details</h2><p>{{ selectable_cameras|length }} RTSP-aktiv · {{ cameras|length }} insgesamt</p></div></div>
+    <div class="section-head"><div><h2>{{ t('camera_details') }}</h2><p>{{ selectable_cameras|length }} {{ t('rtsp_active_count', total=cameras|length) }}</p></div></div>
     <div class="camera-list">
     {% for camera in cameras %}<form class="camera" method="post" action="{{ url_for('update_camera', camera_key=camera.camera_key) }}">
-      <div><strong>{{ camera.name }}</strong><small>ID {{ camera.zm_id }} · {{ camera.server_name or 'lokaler Server' }} · {{ camera.status }} · {% if camera.rtsp_enabled %}RTSP aktiv{% else %}kein RTSP{% endif %}</small></div>
-      <label>RTSP-Host (optional)<input name="rtsp_host_override" value="{{ camera.rtsp_host_override or '' }}" placeholder="Automatisch: {{ camera.rtsp_host }}"></label><label>Streamname (optional)<input name="stream_override" value="{{ camera.stream_override or '' }}" placeholder="Regel verwenden"></label><button>Speichern</button>
-    </form>{% else %}<div class="empty">Nach dem Verbinden erscheinen hier die Kameras.</div>{% endfor %}
+      <div><strong>{{ camera.name }}</strong><small>ID {{ camera.zm_id }} · {{ camera.server_name or t('local_server') }} · {{ camera.status }} · {% if camera.rtsp_enabled %}{{ t('rtsp_enabled') }}{% else %}{{ t('no_rtsp') }}{% endif %}</small></div>
+      <label>{{ t('rtsp_host_optional') }}<input name="rtsp_host_override" value="{{ camera.rtsp_host_override or '' }}" placeholder="{{ t('automatic') }}: {{ camera.rtsp_host }}"></label><label>{{ t('stream_name_optional') }}<input name="stream_override" value="{{ camera.stream_override or '' }}" placeholder="{{ t('use_rule') }}"></label><button>{{ t('save') }}</button>
+    </form>{% else %}<div class="empty">{{ t('cameras_after_connect') }}</div>{% endfor %}
     </div>
   </section>
 </main>

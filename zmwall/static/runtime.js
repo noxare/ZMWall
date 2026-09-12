@@ -1,6 +1,10 @@
 (() => {
   const streamBadges = [...document.querySelectorAll("[data-decoder-camera]")];
   if (!streamBadges.length) return;
+  const labels = document.body.dataset;
+  const format = (template, values) => Object.entries(values).reduce(
+    (text, [name, value]) => text.replace(`{${name}}`, value), template,
+  );
 
   async function refreshDecoderStatus() {
     try {
@@ -11,9 +15,9 @@
       if (!response.ok) return;
       const payload = await response.json();
       streamBadges.forEach((badge) => {
-        badge.textContent = "wartet";
+        badge.textContent = labels.i18nWaiting;
         badge.className = "stream-decoder waiting";
-        badge.title = "Diese Kamera ist momentan nicht aktiv";
+        badge.title = labels.i18nCameraInactive;
       });
       const runtimeStreams = Object.values(payload.screens || {}).flatMap((screen) => screen.streams || []);
       streamBadges.forEach((badge) => {
@@ -21,15 +25,15 @@
         const stream = candidates.find((item) => item.role === "active") || candidates[0];
         if (!stream) return;
         const isPreload = stream.role === "preload";
-        const mode = stream.device === "gpu" ? "GPU" : stream.device === "cpu" ? "CPU" : isPreload ? "puffert" : "…";
-        badge.textContent = isPreload && stream.device !== "unknown" ? `${mode} · puffert` : mode;
+        const mode = stream.device === "gpu" ? "GPU" : stream.device === "cpu" ? "CPU" : isPreload ? labels.i18nBuffering : "…";
+        badge.textContent = isPreload && stream.device !== "unknown" ? `${mode} · ${labels.i18nBuffering}` : mode;
         badge.className = `stream-decoder ${stream.device} ${isPreload ? "preloading" : "active"}`;
         const resource = stream.device === "gpu"
-          ? `Hardware-Decoding: ${payload.hardware.gpu} (${stream.hwdec})`
+          ? format(labels.i18nHardwareDecoding, { device: payload.hardware.gpu, method: stream.hwdec })
           : stream.device === "cpu"
-            ? `Software-Decoding: ${payload.hardware.cpu}`
-            : "Decoder wird ermittelt";
-        badge.title = isPreload ? `Verdeckter Vorab-Stream – ${resource}` : resource;
+            ? format(labels.i18nSoftwareDecoding, { device: payload.hardware.cpu })
+            : labels.i18nDecoderDetecting;
+        badge.title = isPreload ? format(labels.i18nHiddenPreload, { resource }) : resource;
       });
     } catch (_error) {
       // A transient restart or network interruption is resolved by the next poll.

@@ -24,6 +24,8 @@ header p, .section-head p, small { color: var(--muted); }
 .diagnostics-link:hover { text-decoration: underline; }
 .live { color: var(--accent); font-size: 13px; }
 .header-actions { display: flex; align-items: center; gap: 14px; }
+.language-form label { display: flex; flex-direction: row; align-items: center; gap: 7px; }
+.language-form select { width: auto; min-width: 118px; padding: 7px 9px; font-size: 12px; }
 .update-button { padding: 8px 12px; background: #f2c94c; color: #211b06; }
 .update-button.secondary { background: #24323e; color: var(--text); }
 .update-button.update-error { background: #462427; color: #ffc0c0; }
@@ -127,6 +129,8 @@ summary { cursor: pointer; font-weight: 700; }
   .screen-settings { grid-template-columns: repeat(3, minmax(90px, 1fr)); }
   .live { display: none; }
   .header-actions { gap: 8px; }
+  header { align-items: flex-start; gap: 12px; }
+  .header-actions { flex-wrap: wrap; justify-content: flex-end; }
 }
 
 @media (max-width: 520px) {

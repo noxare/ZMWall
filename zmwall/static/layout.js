@@ -34,7 +34,7 @@
     if (!poolChips.length) {
       const message = document.createElement("p");
       message.className = "pool-empty";
-      message.textContent = "Alle RTSP-Kameras sind zugeordnet.";
+      message.textContent = document.body.dataset.i18nAllAssigned;
       pool.appendChild(message);
     }
     const count = document.getElementById("available-count");
@@ -125,7 +125,7 @@
 
   const filter = document.getElementById("camera-filter");
   function applyFilter() {
-    const term = (filter?.value || "").trim().toLocaleLowerCase("de");
+    const term = (filter?.value || "").trim().toLocaleLowerCase(document.documentElement.lang);
     let visible = 0;
     pool.querySelectorAll(".camera-chip").forEach((chip) => {
       chip.hidden = Boolean(term && !chip.dataset.cameraSearch.includes(term));

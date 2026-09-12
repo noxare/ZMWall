@@ -9,11 +9,12 @@ from functools import wraps
 from pathlib import Path
 
 import requests
-from flask import Flask, Response, flash, jsonify, redirect, render_template, request, url_for
+from flask import Flask, Response, flash, g, jsonify, redirect, render_template, request, url_for
 
 from . import __version__
 from .core import PlayerManager, api_url, connect, detect_outputs, init_db, parse_camera_keys, sync_site
 from .diagnostics import diagnose_camera
+from .i18n import SUPPORTED_LANGUAGES, resolve_language, translate
 
 
 DB_PATH = os.getenv("ZMWALL_DB", "/var/lib/zmwall/zmwall.db")
@@ -30,7 +31,32 @@ UPDATE_ORIGINS = {
 }
 update_lock = threading.Lock()
 diagnostic_lock = threading.Lock()
-update_state = {"state": "checking", "message": "Suche nach Updates …"}
+update_state = {"state": "checking", "message_key": "update_searching"}
+
+
+def current_language() -> str:
+    if "language" not in g:
+        g.language = resolve_language(request.cookies.get("zmwall_language"), request.accept_languages)
+    return g.language
+
+
+def t(key: str, **values: object) -> str:
+    return translate(current_language(), key, **values)
+
+
+def localized_update_state() -> dict[str, str]:
+    status = dict(update_state)
+    status["message"] = t(status.pop("message_key", "update_check_failed"))
+    return status
+
+
+@app.context_processor
+def inject_language() -> dict[str, object]:
+    return {
+        "t": t,
+        "language": current_language(),
+        "language_choice": request.cookies.get("zmwall_language", "auto"),
+    }
 
 
 def _git(*arguments: str, timeout: int = 25) -> subprocess.CompletedProcess[str]:
@@ -43,9 +69,9 @@ def _git(*arguments: str, timeout: int = 25) -> subprocess.CompletedProcess[str]
     )
 
 
-def _set_update_state(state: str, message: str, **values: str) -> dict[str, str]:
+def _set_update_state(state: str, message_key: str, **values: str) -> dict[str, str]:
     global update_state
-    update_state = {"state": state, "message": message, **values}
+    update_state = {"state": state, "message_key": message_key, **values}
     return dict(update_state)
 
 
@@ -56,40 +82,40 @@ def check_for_update() -> dict[str, str]:
             return dict(update_state)
         try:
             if not (APP_DIR / ".git").is_dir():
-                return _set_update_state("error", "Installation ist kein Git-Checkout.")
+                return _set_update_state("error", "update_not_git")
             origin = _git("remote", "get-url", "origin")
             if origin.returncode or origin.stdout.strip() not in UPDATE_ORIGINS:
-                return _set_update_state("error", "Unerwartetes Git-Repository.")
+                return _set_update_state("error", "update_wrong_repo")
             branch = _git("branch", "--show-current")
             if branch.returncode or branch.stdout.strip() != "main":
-                return _set_update_state("error", "Für Updates muss der Branch main aktiv sein.")
+                return _set_update_state("error", "update_wrong_branch")
             changed = _git("status", "--porcelain", "--untracked-files=no")
             if changed.returncode or changed.stdout.strip():
-                return _set_update_state("error", "Lokale Programmänderungen verhindern das Update.")
+                return _set_update_state("error", "update_local_changes")
 
             fetched = _git("fetch", "--quiet", "--prune", "origin", "main", timeout=40)
             if fetched.returncode:
-                return _set_update_state("error", "GitHub konnte nicht nach Updates gefragt werden.")
+                return _set_update_state("error", "update_github_failed")
             local = _git("rev-parse", "HEAD")
             remote = _git("rev-parse", "origin/main")
             if local.returncode or remote.returncode:
-                return _set_update_state("error", "Git-Versionsstand konnte nicht gelesen werden.")
+                return _set_update_state("error", "update_version_failed")
             local_sha = local.stdout.strip()
             remote_sha = remote.stdout.strip()
             if local_sha == remote_sha:
-                return _set_update_state("current", "ZMWall ist aktuell.", current=local_sha[:8])
+                return _set_update_state("current", "update_current", current=local_sha[:8])
             ancestor = _git("merge-base", "--is-ancestor", local_sha, remote_sha)
             if ancestor.returncode:
-                return _set_update_state("error", "Das Update ist nicht per Fast-Forward möglich.")
+                return _set_update_state("error", "update_not_fast_forward")
             return _set_update_state(
                 "available",
-                "Eine neue ZMWall-Version ist verfügbar.",
+                "update_available",
                 current=local_sha[:8],
                 target=remote_sha[:8],
                 target_sha=remote_sha,
             )
         except (OSError, subprocess.SubprocessError):
-            return _set_update_state("error", "Update-Prüfung ist fehlgeschlagen.")
+            return _set_update_state("error", "update_check_failed")
 
 
 def periodic_update_check() -> None:
@@ -154,7 +180,7 @@ def login_required(fn):
     def wrapped(*args, **kwargs):
         if not authorized():
             return Response(
-                "Anmeldung mit einem gültigen ZoneMinder-Benutzer erforderlich",
+                t("login_required"),
                 401,
                 {"WWW-Authenticate": 'Basic realm="ZoneMinder"'},
             )
@@ -190,9 +216,28 @@ def index():
         "index.html", sites=sites, zm_servers=zm_servers, cameras=cameras,
         selectable_cameras=selectable_cameras, available_cameras=available_cameras,
         screens=screens, assignments=assignments, outputs=detect_outputs(), version=__version__,
-        update_status=dict(update_state),
+        update_status=localized_update_state(),
         runtime_hardware=runtime_status["hardware"],
     )
+
+
+@app.post("/language")
+def set_language():
+    """Store an explicit UI language or return to browser/system detection."""
+    choice = request.form.get("language", "auto")
+    if choice not in (*SUPPORTED_LANGUAGES, "auto"):
+        choice = "auto"
+    next_path = request.form.get("next", "/")
+    if not next_path.startswith("/") or next_path.startswith("//"):
+        next_path = "/"
+    response = redirect(next_path)
+    if choice == "auto":
+        response.delete_cookie("zmwall_language", samesite="Lax")
+    else:
+        response.set_cookie(
+            "zmwall_language", choice, max_age=31536000, httponly=True, samesite="Lax"
+        )
+    return response
 
 
 @app.get("/runtime/status")
@@ -215,14 +260,14 @@ def diagnostics():
     if request.method == "POST":
         valid_keys = {row["camera_key"] for row in diagnostic_cameras}
         if selected not in valid_keys:
-            diagnostic_error = "Bitte eine gültige RTSP-Kamera auswählen."
+            diagnostic_error = t("invalid_camera")
         elif not diagnostic_lock.acquire(blocking=False):
-            diagnostic_error = "Es läuft bereits eine Streamdiagnose."
+            diagnostic_error = t("diagnostic_busy")
         else:
             try:
                 result = diagnose_camera(DB_PATH, selected, __version__, manager.decode_hardware)
             except (ValueError, OSError, subprocess.SubprocessError) as error:
-                diagnostic_error = f"Diagnose fehlgeschlagen: {type(error).__name__}"
+                diagnostic_error = t("diagnostic_failed", error=type(error).__name__)
             finally:
                 diagnostic_lock.release()
     return render_template(
@@ -234,13 +279,14 @@ def diagnostics():
 @app.get("/updates/status")
 @login_required
 def get_update_status():
-    return jsonify({**update_state, "version": __version__})
+    return jsonify({**localized_update_state(), "version": __version__})
 
 
 @app.post("/updates/check")
 @login_required
 def check_updates_now():
-    status = check_for_update()
+    check_for_update()
+    status = localized_update_state()
     flash(status["message"], "error" if status["state"] == "error" else "ok")
     return redirect(url_for("index"))
 
@@ -248,7 +294,8 @@ def check_updates_now():
 @app.post("/updates/install")
 @login_required
 def install_update():
-    status = check_for_update()
+    check_for_update()
+    status = localized_update_state()
     if status["state"] != "available":
         flash(status["message"], "error" if status["state"] == "error" else "ok")
         return redirect(url_for("index"))
@@ -263,19 +310,19 @@ def install_update():
                 close_fds=True,
             )
     except OSError:
-        _set_update_state("error", "Der Update-Prozess konnte nicht gestartet werden.")
-        flash(update_state["message"], "error")
+        _set_update_state("error", "update_process_failed")
+        flash(t("update_process_failed"), "error")
         return redirect(url_for("index"))
 
-    _set_update_state("updating", "Update wird installiert …", target=status.get("target", ""))
+    _set_update_state("updating", "update_installing", target=status.get("target", ""))
 
     def watch_failed_update() -> None:
         return_code = process.wait()
         if return_code:
-            _set_update_state("error", "Update fehlgeschlagen. Details stehen in update.log.")
+            _set_update_state("error", "update_failed_log")
 
     threading.Thread(target=watch_failed_update, daemon=True).start()
-    flash("Update gestartet. Die Weboberfläche ist während des kurzen Neustarts vorübergehend nicht erreichbar.", "ok")
+    flash(t("update_started"), "ok")
     return redirect(url_for("index"))
 
 
@@ -294,7 +341,7 @@ def add_site():
         )
         site_id = cursor.lastrowid
     count, error = sync_site(DB_PATH, site_id)
-    flash(error or f"{count} Kameras eingelesen.", "error" if error else "ok")
+    flash(error or t("cameras_imported", count=count), "error" if error else "ok")
     manager.request_reload()
     return redirect(url_for("index"))
 
@@ -303,7 +350,7 @@ def add_site():
 @login_required
 def sync(site_id: int):
     count, error = sync_site(DB_PATH, site_id)
-    flash(error or f"{count} Kameras aktualisiert.", "error" if error else "ok")
+    flash(error or t("cameras_updated", count=count), "error" if error else "ok")
     manager.request_reload()
     return redirect(url_for("index"))
 
@@ -325,7 +372,7 @@ def update_site(site_id: int):
         db.execute(f"""UPDATE sites SET name=?,base_url=?,username=?{sql_password},rtsp_port=?,
                        stream_template=?,url_template=?,verify_tls=? WHERE id=?""", values)
     count, error = sync_site(DB_PATH, site_id)
-    flash(error or f"Verbindung gespeichert; {count} Kameras aktualisiert.", "error" if error else "ok")
+    flash(error or t("connection_saved", count=count), "error" if error else "ok")
     manager.request_reload()
     return redirect(url_for("index"))
 
@@ -347,7 +394,7 @@ def update_zm_server(site_id: int, server_id: str):
         db.execute("UPDATE zm_servers SET ip_override=? WHERE site_id=? AND server_id=?",
                    (fallback_ip, site_id, server_id))
     manager.request_reload()
-    flash("Server-Fallback gespeichert.", "ok")
+    flash(t("server_fallback_saved"), "ok")
     return redirect(url_for("index"))
 
 
@@ -374,7 +421,7 @@ def save_screen():
         db.execute("DELETE FROM tiles WHERE screen_id=? AND position>=?", (screen_id, rows * cols))
         db.execute("DELETE FROM tile_cameras WHERE screen_id=? AND position>=?", (screen_id, rows * cols))
     manager.request_reload()
-    flash("Monitorlayout gespeichert.", "ok")
+    flash(t("monitor_layout_saved"), "ok")
     return redirect(url_for("index"))
 
 
@@ -385,7 +432,7 @@ def save_layouts():
     try:
         screen_ids = [int(value) for value in request.form.getlist("screen_id")]
     except ValueError:
-        flash("Ungültige Display-ID.", "error")
+        flash(t("invalid_display_id"), "error")
         return redirect(url_for("index"))
 
     used: set[str] = set()
@@ -433,7 +480,7 @@ def save_layouts():
                 )
 
     manager.request_reload()
-    flash("Alle Monitorlayouts wurden übernommen.", "ok")
+    flash(t("all_layouts_saved"), "ok")
     return redirect(url_for("index"))
 
 

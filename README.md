@@ -1,8 +1,10 @@
 # ZM Wall
 
-Aktueller Entwicklungsstand: **0.3.0-beta**
+**Deutsch** · [English](README.en.md)
 
-ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigurierbare RTSP-Videowand für ZoneMinder. Jeder physische Monitor kann ein eigenes Raster und eine eigene Kamerabelegung erhalten. Die Streams werden direkt mit `mpv` wiedergegeben; die Weboberfläche dient nur zur Verwaltung.
+Aktueller Entwicklungsstand: **0.3.0-beta.1**
+
+ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigurierbare RTSP-Videowand für ZoneMinder. Jeder physische Monitor kann ein eigenes Raster und eine eigene Kamerabelegung erhalten. ZM Wall verwendet die integrierte RTSP-Restream-Funktion von ZoneMinder: Die Streams werden nicht zusätzlich direkt von den Kameras abgerufen, sondern von ZoneMinder bereitgestellt und mit `mpv` wiedergegeben. Die Weboberfläche dient zur Verwaltung.
 
 ## Funktionen
 
@@ -21,7 +23,8 @@ ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigu
 - abweichender RTSP-Host oder Streamname pro Kamera möglich
 - Erstkonfiguration der Weboberfläche ohne lokales Kennwort
 - nach erfolgreicher ZoneMinder-Erkennung Anmeldung direkt gegen ZoneMinder
-- direkter RTSP-Abruf mit `mpv`, Hardware-Decoding und TCP-Transport
+- Nutzung der integrierten ZoneMinder-RTSP-Restreams mit `mpv`, Hardware-Decoding und TCP-Transport
+- Weboberfläche auf Deutsch und Englisch; automatische Auswahl anhand der Browser-/Systemsprache und jederzeit manuell umschaltbar
 
 ## Voraussetzungen
 
@@ -31,6 +34,8 @@ ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigu
 - für die automatische Multiserver-Zuordnung müssen die in ZoneMinder hinterlegten Server-Hostnamen vom Anzeigerechner aus auflösbar sein
 
 Die ZoneMinder-API muss unter **Options → System → OPT_USE_API** aktiviert sein. Für die aktuelle Token-Anmeldung benötigt ZoneMinder außerdem einen gesetzten `AUTH_HASH_SECRET`.
+
+ZoneMinders RTSP-Restream muss für die verwendeten Monitore erreichbar sein. Der Standardport ist `20000`. Dadurch erzeugt ZM Wall keine zusätzlichen direkten Verbindungen zu den Kameras; die vorhandenen ZoneMinder-Streams werden weiterverwendet.
 
 ## Installation
 
@@ -128,6 +133,8 @@ Ab Version `0.2.0-beta.23` führt die Diagnoseseite zusätzlich einen isolierten
 Ab Version `0.2.0-beta.24` verwendet die automatische Intel-Decoderkette den in der Diagnose bestätigten Profil-Fallback. Scheitern `auto` und `auto-copy` an der FFmpeg-Profilprüfung, wird der Stream verdeckt mit dem Standard-VAAPI-Treiber, `vaapi-copy` und deaktivierter Profilprüfung aufgebaut. Erst wenn auch dieser Versuch fehlschlägt, werden weitere installierte Treiber oder CPU-Decoding verwendet.
 
 Version `0.3.0-beta` markiert den erreichten Meilenstein aus unterbrechungsfreiem Kamerawechsel, verdecktem Stream-Preloading, automatischer hardwareabhängiger Decoderwahl und streambezogener CPU-/GPU-Anzeige. Die integrierte Webdiagnose ermöglicht die Prüfung problematischer Kamerastreams direkt auf dem Zielsystem.
+
+Ab Version `0.3.0-beta.1` steht die Weboberfläche auf Deutsch und Englisch zur Verfügung. Ohne manuelle Auswahl folgt sie der vom Browser gemeldeten System-/Vorzugsprache; die Auswahl in der Kopfzeile wird auf dem Verwaltungsgerät gespeichert.
 
 Jede Grid-Position kann eine oder mehrere Kameras enthalten. Bei mehreren Kameras wechselt ZM Wall nach dem für das betreffende Display eingestellten Intervall zur nächsten Kamera und beginnt nach der letzten wieder von vorn. Der Mindestwert beträgt fünf Sekunden. Ein einzelner Stream bleibt dauerhaft sichtbar.
 

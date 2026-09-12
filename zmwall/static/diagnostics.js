@@ -5,7 +5,7 @@
     const running = document.querySelector("[data-diagnostics-running]");
     if (submit) {
       submit.disabled = true;
-      submit.textContent = "Diagnose läuft …";
+      submit.textContent = document.body.dataset.i18nDiagnosticsRunning;
     }
     if (running) running.hidden = false;
   });
@@ -14,7 +14,7 @@
   document.querySelector("[data-copy-diagnostic]")?.addEventListener("click", async (event) => {
     if (!output) return;
     await navigator.clipboard.writeText(output.textContent);
-    event.currentTarget.textContent = "Kopiert";
+    event.currentTarget.textContent = document.body.dataset.i18nCopied;
   });
   document.querySelector("[data-download-diagnostic]")?.addEventListener("click", () => {
     if (!output) return;

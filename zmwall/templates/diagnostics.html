@@ -1,41 +1,49 @@
 <!doctype html>
-<html lang="de">
+<html lang="{{ language }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Diagnose · ZM Wall</title>
+  <title>{{ t('diagnostics_title') }} · ZM Wall</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script defer src="{{ url_for('static', filename='diagnostics.js') }}"></script>
 </head>
-<body>
+<body data-i18n-diagnostics-running="{{ t('diagnostics_running') }}" data-i18n-copied="{{ t('copied') }}">
 <header>
-  <div class="brand"><h1>ZM Wall Diagnose</h1><p>{{ version }}</p><a class="diagnostics-link" href="{{ url_for('index') }}">Zurück zur Konfiguration</a></div>
+  <div class="brand"><h1>{{ t('diagnostics_title') }}</h1><p>{{ version }}</p><a class="diagnostics-link" href="{{ url_for('index') }}">{{ t('back_configuration') }}</a></div>
+  <form method="post" action="{{ url_for('set_language') }}" class="language-form">
+    <input type="hidden" name="next" value="{{ request.full_path }}">
+    <label><span>{{ t('language') }}</span><select name="language" onchange="this.form.submit()">
+      <option value="auto" {% if language_choice == 'auto' %}selected{% endif %}>{{ t('language_auto') }}</option>
+      <option value="de" {% if language_choice == 'de' %}selected{% endif %}>Deutsch</option>
+      <option value="en" {% if language_choice == 'en' %}selected{% endif %}>English</option>
+    </select></label>
+  </form>
 </header>
 <main class="diagnostics-page">
   <section class="panel diagnostics-panel">
-    <div><h2>Stream prüfen</h2><p>Die Diagnose öffnet für jeweils 30 Frames eine zusätzliche, schreibgeschützte RTSP-Verbindung und verändert keine Einstellungen.</p></div>
+    <div><h2>{{ t('check_stream') }}</h2><p>{{ t('diagnostics_help') }}</p></div>
     <form method="post" class="diagnostics-form" data-diagnostics-form>
-      <label>Kamera
+      <label>{{ t('camera') }}
         <select name="camera_key" required>
-          <option value="">Kamera auswählen …</option>
+          <option value="">{{ t('select_camera') }}</option>
           {% for camera in cameras %}
-            <option value="{{ camera.camera_key }}" {% if selected == camera.camera_key %}selected{% endif %}>{{ camera.name }} · ID {{ camera.zm_id }} · {{ camera.server_name or 'lokaler Server' }}</option>
+            <option value="{{ camera.camera_key }}" {% if selected == camera.camera_key %}selected{% endif %}>{{ camera.name }} · ID {{ camera.zm_id }} · {{ camera.server_name or t('local_server') }}</option>
           {% endfor %}
         </select>
       </label>
-      <button type="submit" data-diagnostics-submit>Diagnose starten</button>
+      <button type="submit" data-diagnostics-submit>{{ t('start_diagnostics') }}</button>
     </form>
-    <p class="diagnostics-running" data-diagnostics-running hidden>Stream wird mit den verfügbaren VAAPI-Treibern geprüft …</p>
+    <p class="diagnostics-running" data-diagnostics-running hidden>{{ t('checking_drivers') }}</p>
     {% if diagnostic_error %}<div class="flash error">{{ diagnostic_error }}</div>{% endif %}
   </section>
 
   {% if result %}
     <section class="panel diagnostic-result">
       <div class="card-head">
-        <div><h2>Diagnoseausgabe</h2><p>Zugangsdaten wurden automatisch entfernt.</p></div>
+        <div><h2>{{ t('diagnostic_output') }}</h2><p>{{ t('credentials_removed') }}</p></div>
         <div class="diagnostic-actions">
-          <button type="button" class="secondary" data-copy-diagnostic>Ausgabe kopieren</button>
-          <button type="button" class="secondary" data-download-diagnostic>Log herunterladen</button>
+          <button type="button" class="secondary" data-copy-diagnostic>{{ t('copy_output') }}</button>
+          <button type="button" class="secondary" data-download-diagnostic>{{ t('download_log') }}</button>
         </div>
       </div>
       <pre data-diagnostic-output>{{ result }}</pre>
