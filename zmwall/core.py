@@ -16,6 +16,7 @@ from typing import Any
 from urllib.parse import quote, urlparse
 
 import requests
+from Xlib import X, display as xdisplay, error as xerror
 
 
 PRELOAD_STABLE_SECONDS = 0.75
@@ -334,6 +335,7 @@ class StreamSpec:
     command: list[str]
     url: str
     label: str = "unbekannt"
+    geometry: tuple[int, int, int, int] | None = None
 
 
 @dataclass
@@ -348,6 +350,93 @@ class Player:
     label: str = "unbekannt"
     launched_at: float = 0.0
     ready_logged: bool = False
+    surface: Any | None = None
+
+
+class X11WindowHost:
+    """Own persistent tile containers and mpv render surfaces outside Openbox."""
+
+    def __init__(self):
+        self.display = xdisplay.Display(os.getenv("ZMWALL_DISPLAY", os.getenv("DISPLAY", ":0")))
+        self.screen = self.display.screen()
+        self.root = self.screen.root
+        self.tiles: dict[str, dict[str, Any]] = {}
+
+    def _tile(self, key: str, geometry: tuple[int, int, int, int]) -> dict[str, Any]:
+        x, y, width, height = geometry
+        tile = self.tiles.get(key)
+        if tile is None:
+            window = self.root.create_window(
+                x, y, width, height, 0, self.screen.root_depth,
+                X.InputOutput, X.CopyFromParent,
+                background_pixel=self.screen.black_pixel,
+                override_redirect=1,
+            )
+            window.set_wm_name(f"ZMWall Tile {key}")
+            window.map()
+            tile = {"window": window, "geometry": geometry, "surfaces": set()}
+            self.tiles[key] = tile
+            self.display.sync()
+        elif tile["geometry"] != geometry:
+            tile["window"].configure(x=x, y=y, width=width, height=height)
+            for surface in tuple(tile["surfaces"]):
+                surface.configure(x=0, y=0, width=width, height=height)
+            tile["geometry"] = geometry
+            self.display.sync()
+        return tile
+
+    def create_surface(
+        self,
+        key: str,
+        geometry: tuple[int, int, int, int],
+        below: Any | None = None,
+    ) -> Any:
+        tile = self._tile(key, geometry)
+        _, _, width, height = geometry
+        surface = tile["window"].create_window(
+            0, 0, width, height, 0, self.screen.root_depth,
+            X.InputOutput, X.CopyFromParent,
+            background_pixel=self.screen.black_pixel,
+            override_redirect=1,
+        )
+        if below is not None:
+            surface.configure(sibling=below, stack_mode=X.Below)
+        surface.map()
+        tile["surfaces"].add(surface)
+        self.display.sync()
+        return surface
+
+    def raise_surface(self, surface: Any) -> None:
+        surface.configure(stack_mode=X.Above)
+        self.display.sync()
+
+    def destroy_surface(self, surface: Any) -> None:
+        for tile in self.tiles.values():
+            tile["surfaces"].discard(surface)
+        try:
+            surface.destroy()
+            self.display.flush()
+        except xerror.BadWindow:
+            pass
+
+    def retain_tiles(self, keys: set[str]) -> None:
+        for key in set(self.tiles) - keys:
+            tile = self.tiles.pop(key)
+            try:
+                tile["window"].destroy()
+            except xerror.BadWindow:
+                pass
+        self.display.flush()
+
+    def close(self) -> None:
+        for tile in self.tiles.values():
+            try:
+                tile["window"].destroy()
+            except xerror.BadWindow:
+                pass
+        self.tiles.clear()
+        self.display.flush()
+        self.display.close()
 
 
 class PlayerManager:
@@ -358,12 +447,13 @@ class PlayerManager:
         self.stop_event = threading.Event()
         self.reload_event = threading.Event()
         self._ipc_counter = 0
+        self.window_host: X11WindowHost | None = None
+        self.window_host_failed = False
 
     def request_reload(self) -> None:
         self.reload_event.set()
 
-    @staticmethod
-    def _terminate(player: Player | None) -> None:
+    def _terminate(self, player: Player | None) -> None:
         if not player:
             return
         return_code = player.process.poll()
@@ -378,6 +468,9 @@ class PlayerManager:
                 player.tile_key, player.label, "process-exited",
                 pid=getattr(player.process, "pid", "unknown"), returncode=return_code,
             )
+        if player.surface is not None and self.window_host is not None:
+            self.window_host.destroy_surface(player.surface)
+            player.surface = None
         try:
             os.unlink(player.ipc_path)
         except FileNotFoundError:
@@ -387,6 +480,19 @@ class PlayerManager:
         self.stop_event.set()
         for player in [*self.players.values(), *self.preloads.values()]:
             self._terminate(player)
+        if self.window_host is not None:
+            self.window_host.close()
+            self.window_host = None
+
+    def _get_window_host(self) -> X11WindowHost | None:
+        if self.window_host is None and not self.window_host_failed:
+            try:
+                self.window_host = X11WindowHost()
+                switch_log("all", "X11", "embedded-host-ready")
+            except (OSError, xerror.DisplayConnectionError) as error:
+                self.window_host_failed = True
+                switch_log("all", "X11", "embedded-host-failed", error=type(error).__name__)
+        return self.window_host
 
     def desired(self) -> dict[str, tuple[StreamSpec, StreamSpec | None]]:
         outputs = {str(item["name"]): item for item in detect_outputs()}
@@ -452,7 +558,7 @@ class PlayerManager:
                                 "--osd-color=#DDFFFFFF", "--osd-outline-color=#B0000000",
                             ])
                         label = f"{camera['name']} (ID {camera['zm_id']})"
-                        return StreamSpec(signature, command, url, label)
+                        return StreamSpec(signature, command, url, label, (x, y, width, height))
 
                     now = time.monotonic()
                     current_index = rotation_index(
@@ -480,7 +586,26 @@ class PlayerManager:
         safe_key = re.sub(r"[^A-Za-z0-9_.-]", "-", key)
         ipc_path = f"/tmp/zmwall-{os.getpid()}-{safe_key}-{self._ipc_counter}.sock"
         command = list(spec.command)
-        if hidden:
+        surface = None
+        host = self._get_window_host() if spec.geometry is not None else None
+        if host is not None and spec.geometry is not None:
+            active_surface = self.players.get(key).surface if self.players.get(key) else None
+            try:
+                surface = host.create_surface(
+                    key, spec.geometry,
+                    below=active_surface if hidden else None,
+                )
+                command = [
+                    argument for argument in command
+                    if argument not in {"--ontop", "--force-window-position"}
+                    and not argument.startswith("--screen-name=")
+                    and not argument.startswith("--geometry=")
+                ]
+                command.insert(-1, f"--wid={surface.id}")
+            except (OSError, xerror.XError) as error:
+                switch_log(key, spec.label, "surface-create-failed", error=type(error).__name__)
+                surface = None
+        if surface is None and hidden:
             command[command.index("--ontop")] = "--ontop=no"
         command.insert(-1, f"--input-ipc-server={ipc_path}")
         started = time.monotonic()
@@ -492,14 +617,18 @@ class PlayerManager:
             player = Player(
                 spec.signature, process, ipc_path, is_ontop=not hidden,
                 tile_key=key, label=spec.label, launched_at=started,
+                window_id=str(surface.id) if surface is not None else None,
+                surface=surface,
             )
             switch_log(
                 key, spec.label, "launch", role="preload" if hidden else "active",
-                pid=process.pid,
+                pid=process.pid, rendering="embedded" if surface is not None else "top-level",
             )
             return player
         except OSError as error:
             switch_log(key, spec.label, "launch-failed", error=type(error).__name__)
+            if surface is not None and host is not None:
+                host.destroy_surface(surface)
             try:
                 os.unlink(ipc_path)
             except FileNotFoundError:
@@ -585,6 +714,24 @@ class PlayerManager:
 
     def _raise(self, player: Player) -> bool:
         started = time.monotonic()
+        if player.surface is not None and self.window_host is not None:
+            try:
+                self.window_host.raise_surface(player.surface)
+                switch_log(
+                    player.tile_key, player.label, "surface-raise",
+                    pid=getattr(player.process, "pid", "unknown"),
+                    window=player.window_id,
+                    success=True,
+                    duration_ms=round((time.monotonic() - started) * 1000),
+                )
+                return True
+            except (OSError, xerror.XError) as error:
+                switch_log(
+                    player.tile_key, player.label, "surface-raise",
+                    pid=getattr(player.process, "pid", "unknown"),
+                    window=player.window_id, success=False, error=type(error).__name__,
+                )
+                return False
         try:
             if player.window_id is None:
                 window = self._ipc(player, ["get_property", "window-id"])
@@ -639,7 +786,7 @@ class PlayerManager:
             pid=getattr(player.process, "pid", "unknown"),
             old_pid=getattr(old.process, "pid", "unknown") if old else "none",
         )
-        if not player.is_ontop:
+        if player.surface is None and not player.is_ontop:
             ontop_started = time.monotonic()
             self._ipc(player, ["set_property", "ontop", True])
             player.is_ontop = True
@@ -649,6 +796,13 @@ class PlayerManager:
                 duration_ms=round((time.monotonic() - ontop_started) * 1000),
             )
         raised = self._raise(player)
+        if player.surface is not None and not raised:
+            switch_log(
+                key, player.label, "promotion-aborted",
+                pid=getattr(player.process, "pid", "unknown"),
+                reason="surface-raise-failed",
+            )
+            return
         if not raised and old is not None and old is not player:
             # The old implementation proved that revealing the preloaded
             # window by removing its predecessor works on this hardware. Keep
@@ -682,6 +836,8 @@ class PlayerManager:
             self._terminate(self.players.pop(key))
         for key in set(self.preloads) - set(wanted):
             self._terminate(self.preloads.pop(key))
+        if self.window_host is not None:
+            self.window_host.retain_tiles(set(wanted))
 
         for key, (current, upcoming) in wanted.items():
             active = self.players.get(key)

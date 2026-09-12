@@ -192,6 +192,7 @@ def test_player_manager_prepares_current_and_upcoming_stream(monkeypatch):
         assert "--hwdec=auto-safe" in current.command
         assert upcoming is not None
         assert "/hof?" in upcoming.url
+        assert upcoming.geometry == (0, 0, 1920, 1080)
 
 
 def test_rotation_keeps_old_player_until_preload_has_video(monkeypatch):
@@ -281,6 +282,94 @@ def test_window_tool_timeout_does_not_block_rotation(monkeypatch):
     assert not old.is_ontop
     assert old.process.terminated
     assert sleeps == [core.WINDOW_SWITCH_SETTLE_SECONDS]
+
+
+def test_embedded_surface_switch_bypasses_window_manager(monkeypatch):
+    class FakeProcess:
+        def __init__(self, pid):
+            self.pid = pid
+            self.terminated = False
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            self.terminated = True
+
+    class FakeWindowHost:
+        def __init__(self):
+            self.raised = []
+            self.destroyed = []
+
+        def raise_surface(self, surface):
+            self.raised.append(surface)
+
+        def destroy_surface(self, surface):
+            self.destroyed.append(surface)
+
+    manager = core.PlayerManager("unused.db")
+    manager.window_host = FakeWindowHost()
+    old_surface = object()
+    next_surface = object()
+    old = core.Player(
+        "old", FakeProcess(20), "/tmp/not-created-old.sock",
+        tile_key="1:0", surface=old_surface,
+    )
+    replacement = core.Player(
+        "next", FakeProcess(21), "/tmp/not-created-next.sock",
+        tile_key="1:0", surface=next_surface,
+    )
+    manager.players["1:0"] = old
+    manager.preloads["1:0"] = replacement
+    monkeypatch.setattr(core.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        manager, "_ipc",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("IPC ontop must not be used")),
+    )
+
+    manager._promote("1:0", replacement)
+
+    assert manager.window_host.raised == [next_surface]
+    assert manager.window_host.destroyed == [old_surface]
+    assert old.process.terminated
+
+
+def test_failed_embedded_raise_keeps_old_surface_visible(monkeypatch):
+    class FakeProcess:
+        def __init__(self, pid):
+            self.pid = pid
+            self.terminated = False
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            self.terminated = True
+
+    class FailingWindowHost:
+        def raise_surface(self, _surface):
+            raise OSError("X11 unavailable")
+
+        def destroy_surface(self, _surface):
+            raise AssertionError("visible surface must not be destroyed")
+
+    manager = core.PlayerManager("unused.db")
+    manager.window_host = FailingWindowHost()
+    old = core.Player(
+        "old", FakeProcess(30), "/tmp/not-created-old.sock",
+        tile_key="1:0", surface=object(),
+    )
+    replacement = core.Player(
+        "next", FakeProcess(31), "/tmp/not-created-next.sock",
+        tile_key="1:0", surface=object(),
+    )
+    manager.players["1:0"] = old
+    manager.preloads["1:0"] = replacement
+
+    manager._promote("1:0", replacement)
+
+    assert manager.players["1:0"] is old
+    assert not old.process.terminated
 
 
 def test_preload_must_render_frames_stably_before_it_is_ready(monkeypatch):
