@@ -189,10 +189,57 @@ def test_player_manager_prepares_current_and_upcoming_stream(monkeypatch):
         now[0] = 26
         current, upcoming = core.PlayerManager(db_path).desired()[f"{screen_id}:0"]
         assert "/tor?" in current.url
-        assert "--hwdec=auto-safe" in current.command
+        assert "--hwdec=auto,auto-copy" in current.command
         assert upcoming is not None
         assert "/hof?" in upcoming.url
         assert upcoming.geometry == (0, 0, 1920, 1080)
+
+
+def test_hardware_names_are_readable(monkeypatch):
+    monkeypatch.setattr(
+        core.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            stdout="00:02.0 VGA compatible controller: Intel Corporation HD Graphics 5500 (rev 09)\n"
+        ),
+    )
+    hardware = core.detect_decode_hardware()
+    assert hardware["gpu"] == "Intel Corporation HD Graphics 5500"
+    assert "(R)" not in hardware["cpu"]
+    assert "(TM)" not in hardware["cpu"]
+
+
+def test_runtime_status_groups_actual_decoders_by_monitor(monkeypatch):
+    class FakeProcess:
+        def poll(self):
+            return None
+
+    with tempfile.TemporaryDirectory() as directory:
+        db_path = str(Path(directory) / "status.db")
+        init_db(db_path)
+        with connect(db_path) as db:
+            screen_id = db.execute(
+                "INSERT INTO screens(output_name,rows,cols) VALUES('HDMI-1',1,2)"
+            ).lastrowid
+        monkeypatch.setattr(
+            core,
+            "detect_decode_hardware",
+            lambda: {"cpu": "Intel Core i5-5200U", "gpu": "Intel HD Graphics 5500"},
+        )
+        manager = core.PlayerManager(db_path)
+        manager.players[f"{screen_id}:0"] = core.Player(
+            "gpu", FakeProcess(), "/tmp/gpu.sock", label="4K-Kamera",
+            decode_device="gpu", hwdec="vaapi", codec="h264",
+        )
+        manager.players[f"{screen_id}:1"] = core.Player(
+            "cpu", FakeProcess(), "/tmp/cpu.sock", label="Substream",
+            decode_device="cpu", hwdec="no", codec="h264",
+        )
+
+        status = manager.runtime_status()["screens"][str(screen_id)]
+        assert status["state"] == "mixed"
+        assert status["label"] == "CPU + GPU · Intel HD Graphics 5500"
+        assert {stream["device"] for stream in status["streams"]} == {"cpu", "gpu"}
 
 
 def test_rotation_keeps_old_player_until_preload_has_video(monkeypatch):

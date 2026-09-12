@@ -25,6 +25,41 @@ WINDOW_COMMAND_TIMEOUT_SECONDS = 0.20
 WINDOW_SWITCH_SETTLE_SECONDS = 0.05
 
 
+def _clean_hardware_name(value: str) -> str:
+    """Return a compact, human-readable CPU/GPU model name."""
+    cleaned = re.sub(r"\s*\(rev [^)]+\)\s*$", "", value).strip()
+    cleaned = cleaned.replace("(R)", "").replace("(TM)", "")
+    cleaned = re.sub(r"\s+CPU\s+@\s+.*$", "", cleaned, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def detect_decode_hardware() -> dict[str, str]:
+    """Detect readable processor and graphics names without vendor assumptions."""
+    cpu = "Prozessor"
+    try:
+        for line in Path("/proc/cpuinfo").read_text(errors="replace").splitlines():
+            if line.lower().startswith("model name") and ":" in line:
+                cpu = _clean_hardware_name(line.split(":", 1)[1]) or cpu
+                break
+    except OSError:
+        pass
+
+    gpu = "Grafikeinheit"
+    try:
+        result = subprocess.run(
+            ["lspci"], check=False, capture_output=True, text=True, timeout=2,
+        )
+        for line in result.stdout.splitlines():
+            if any(kind in line for kind in (
+                "VGA compatible controller:", "3D controller:", "Display controller:",
+            )):
+                gpu = _clean_hardware_name(line.split(": ", 1)[1]) or gpu
+                break
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return {"cpu": cpu, "gpu": gpu}
+
+
 def switch_log(tile: str, camera: str, event: str, **values: Any) -> None:
     """Write timestamped, credential-free diagnostics for stream rotation."""
     details = " ".join(f"{name}={value}" for name, value in values.items())
@@ -351,6 +386,9 @@ class Player:
     launched_at: float = 0.0
     ready_logged: bool = False
     surface: Any | None = None
+    decode_device: str = "unknown"
+    hwdec: str = "unknown"
+    codec: str = "unknown"
 
 
 class X11WindowHost:
@@ -449,6 +487,59 @@ class PlayerManager:
         self._ipc_counter = 0
         self.window_host: X11WindowHost | None = None
         self.window_host_failed = False
+        self.decode_hardware = detect_decode_hardware()
+
+    def runtime_status(self) -> dict[str, Any]:
+        """Return the actual decoder in use, grouped by physical monitor."""
+        with connect(self.db_path) as db:
+            screen_names = {
+                str(row["id"]): row["output_name"]
+                for row in db.execute("SELECT id,output_name FROM screens ORDER BY output_name")
+            }
+
+        screens: dict[str, dict[str, Any]] = {
+            screen_id: {
+                "screen_id": int(screen_id), "output_name": output_name,
+                "state": "inactive", "label": "Keine aktiven Streams",
+                "cpu_model": self.decode_hardware["cpu"],
+                "gpu_model": self.decode_hardware["gpu"],
+                "streams": [],
+            }
+            for screen_id, output_name in screen_names.items()
+        }
+        try:
+            active_players = list(self.players.items())
+        except RuntimeError:
+            active_players = []
+
+        for tile_key, player in active_players:
+            screen_id = tile_key.split(":", 1)[0]
+            screen = screens.get(screen_id)
+            if screen is None or player.process.poll() is not None:
+                continue
+            screen["streams"].append({
+                "tile": tile_key,
+                "camera": player.label,
+                "device": player.decode_device,
+                "hwdec": player.hwdec,
+                "codec": player.codec,
+            })
+
+        for screen in screens.values():
+            devices = {item["device"] for item in screen["streams"]}
+            if not screen["streams"] or devices == {"unknown"}:
+                screen["state"] = "loading" if screen["streams"] else "inactive"
+                screen["label"] = "Decoder wird ermittelt …" if screen["streams"] else "Keine aktiven Streams"
+            elif "cpu" in devices and "gpu" in devices:
+                screen["state"] = "mixed"
+                screen["label"] = f"CPU + GPU · {self.decode_hardware['gpu']}"
+            elif "gpu" in devices:
+                screen["state"] = "gpu"
+                screen["label"] = f"GPU · {self.decode_hardware['gpu']}"
+            else:
+                screen["state"] = "cpu"
+                screen["label"] = f"CPU · {self.decode_hardware['cpu']}"
+        return {"hardware": dict(self.decode_hardware), "screens": screens}
 
     def request_reload(self) -> None:
         self.reload_event.set()
@@ -545,7 +636,7 @@ class PlayerManager:
                             f"--screen-name={screen['output_name']}",
                             "--keepaspect=no", "--keepaspect-window=no", "--panscan=0",
                             "--video-zoom=0", "--no-osc", "--cursor-autohide=always",
-                            "--hwdec=auto-safe", "--profile=low-latency",
+                            "--hwdec=auto,auto-copy", "--profile=low-latency",
                             "--demuxer-lavf-o=rtsp_transport=tcp,rw_timeout=15000000",
                             f"--geometry={geometry}", "--really-quiet", "--playlist=-",
                         ]
@@ -715,6 +806,9 @@ class PlayerManager:
                 {},
             )
             decoded_params = video_params.get("data", {})
+            player.hwdec = str(hardware_name or "no")
+            player.decode_device = "gpu" if player.hwdec not in {"no", "unknown", ""} else "cpu"
+            player.codec = str(video_track.get("codec", "unknown"))
             switch_log(
                 player.tile_key, player.label, "first-frame",
                 pid=getattr(player.process, "pid", "unknown"),
@@ -911,6 +1005,9 @@ class PlayerManager:
                         self.preloads[key] = preload
 
             if active and active.signature == current.signature:
+                # Also inspect permanently assigned streams. Previously only
+                # preloads were probed, which left their UI decoder state unknown.
+                self._ready(active)
                 target = upcoming
                 preload = self.preloads.get(key)
                 if target is None:

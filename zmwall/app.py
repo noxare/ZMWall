@@ -183,12 +183,20 @@ def index():
             assignments.setdefault(f"{row['screen_id']}:{row['position']}", []).append(row)
             assigned_camera_keys.add(row["camera_key"])
         available_cameras = [camera for camera in selectable_cameras if camera["camera_key"] not in assigned_camera_keys]
+    runtime_status = manager.runtime_status()
     return render_template(
         "index.html", sites=sites, zm_servers=zm_servers, cameras=cameras,
         selectable_cameras=selectable_cameras, available_cameras=available_cameras,
         screens=screens, assignments=assignments, outputs=detect_outputs(), version=__version__,
         update_status=dict(update_state),
+        runtime_screens=runtime_status["screens"],
     )
+
+
+@app.get("/runtime/status")
+@login_required
+def get_runtime_status():
+    return jsonify(manager.runtime_status())
 
 
 @app.get("/updates/status")

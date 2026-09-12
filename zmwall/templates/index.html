@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script defer src="{{ url_for('static', filename='layout.js') }}"></script>
   <script defer src="{{ url_for('static', filename='updates.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='runtime.js') }}"></script>
 </head>
 <body data-version="{{ version }}">
 <header>
@@ -69,6 +70,9 @@
           <article class="card screen-card">
             <div class="card-head">
               <div><h3>{{ screen.output_name }}</h3><small>{{ screen.rows }} × {{ screen.cols }}</small></div>
+              {% set decoder = runtime_screens.get(screen.id|string, {}) %}
+              <span class="decoder-status {{ decoder.get('state', 'inactive') }}" data-decoder-screen="{{ screen.id }}"
+                    title="Tatsächlich für die aktiven Streams verwendeter Decoder">{{ decoder.get('label', 'Keine aktiven Streams') }}</span>
               <button type="submit" class="link danger" formaction="{{ url_for('delete_screen', screen_id=screen.id) }}"
                       formnovalidate onclick="return confirm('Anzeige wirklich entfernen?')">Anzeige entfernen</button>
             </div>

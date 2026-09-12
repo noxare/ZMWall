@@ -34,6 +34,11 @@ section { margin-bottom: 42px; }
 .card-head, .actions { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 16px; }
 .status { color: var(--accent); font-size: 12px; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status.bad, .danger { color: var(--danger); }
+.decoder-status { margin-left: auto; max-width: 52%; padding: 5px 9px; overflow: hidden; border: 1px solid #3b4c59; border-radius: 999px; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.decoder-status.gpu { border-color: #1b755e; background: #10251f; color: #9cf3d8; }
+.decoder-status.cpu { border-color: #806a28; background: #29230f; color: #f2c94c; }
+.decoder-status.mixed { border-color: #396d91; background: #102231; color: #a9dcff; }
+.decoder-status.loading { opacity: .8; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .wide { grid-column: 1 / -1; }
 label { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 12px; }
