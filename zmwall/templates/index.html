@@ -93,6 +93,7 @@
                       <div class="camera-chip" draggable="true" tabindex="0"
                            data-camera-key="{{ camera.camera_key }}" data-camera-search="{{ (camera.name ~ ' ' ~ (camera.server_name or ''))|lower }}">
                         <span><strong>{{ camera.name }}</strong><small>{{ camera.server_name or 'lokaler Server' }}</small></span>
+                        <span class="stream-decoder waiting" data-decoder-camera="{{ camera.camera_key }}" title="Diese Kamera ist momentan nicht aktiv">wartet</span>
                         <button type="button" class="unassign" title="Zuordnung entfernen" aria-label="{{ camera.name }} zurücklegen">×</button>
                       </div>
                     {% endfor %}

@@ -84,10 +84,15 @@ summary { cursor: pointer; font-weight: 700; }
 .camera-chip.dragging { opacity: .4; }
 .camera-chip.selected { border-color: var(--accent); box-shadow: 0 0 0 2px #27d39f33; }
 .camera-chip > span { min-width: 0; }
+.camera-chip > span:first-child { flex: 1 1 auto; }
 .camera-chip strong, .camera-chip small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .camera-chip strong { font-size: 13px; }
 .camera-chip small { font-size: 11px; }
 .camera-chip .unassign { align-self: center; flex: 0 0 auto; width: 25px; height: 25px; padding: 0; border-radius: 50%; background: #263744; color: var(--muted); font-size: 17px; line-height: 1; }
+.stream-decoder { flex: 0 0 auto; min-width: 38px !important; padding: 2px 6px; border: 1px solid #3b4c59; border-radius: 999px; text-align: center; font-size: 10px; font-weight: 700; }
+.stream-decoder.gpu { border-color: #1b755e; background: #10251f; color: #9cf3d8; }
+.stream-decoder.cpu { border-color: #806a28; background: #29230f; color: #f2c94c; }
+.stream-decoder.unknown, .stream-decoder.waiting { color: var(--muted); font-weight: 500; }
 .camera-pool .camera-chip .unassign { display: none; }
 .save-layout { justify-self: end; position: sticky; bottom: 14px; box-shadow: 0 5px 24px #000a; }
 

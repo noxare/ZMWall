@@ -302,17 +302,18 @@ def test_runtime_status_groups_actual_decoders_by_monitor(monkeypatch):
         manager = core.PlayerManager(db_path)
         manager.players[f"{screen_id}:0"] = core.Player(
             "gpu", FakeProcess(), "/tmp/gpu.sock", label="4K-Kamera",
-            decode_device="gpu", hwdec="vaapi", codec="h264",
+            decode_device="gpu", hwdec="vaapi", codec="h264", stream_key="1:90",
         )
         manager.players[f"{screen_id}:1"] = core.Player(
             "cpu", FakeProcess(), "/tmp/cpu.sock", label="Substream",
-            decode_device="cpu", hwdec="no", codec="h264",
+            decode_device="cpu", hwdec="no", codec="h264", stream_key="1:75",
         )
 
         status = manager.runtime_status()["screens"][str(screen_id)]
         assert status["state"] == "mixed"
         assert status["label"] == "CPU + GPU · Intel HD Graphics 5500"
         assert {stream["device"] for stream in status["streams"]} == {"cpu", "gpu"}
+        assert {stream["camera_key"] for stream in status["streams"]} == {"1:90", "1:75"}
 
 
 def test_rotation_keeps_old_player_until_preload_has_video(monkeypatch):

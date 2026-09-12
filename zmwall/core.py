@@ -544,6 +544,7 @@ class PlayerManager:
             screen["streams"].append({
                 "tile": tile_key,
                 "camera": player.label,
+                "camera_key": player.stream_key,
                 "device": player.decode_device,
                 "hwdec": player.hwdec,
                 "codec": player.codec,
