@@ -18,7 +18,9 @@ import requests
 
 
 PRELOAD_STABLE_SECONDS = 0.75
-WINDOW_SWITCH_SETTLE_SECONDS = 0.10
+PRELOAD_LEAD_SECONDS = 5.0
+WINDOW_COMMAND_TIMEOUT_SECONDS = 0.20
+WINDOW_SWITCH_SETTLE_SECONDS = 0.05
 
 
 SCHEMA = """
@@ -146,6 +148,14 @@ def rotation_index(count: int, interval_seconds: int, now: float | None = None) 
     interval = max(5, int(interval_seconds))
     timestamp = time.monotonic() if now is None else now
     return int(timestamp // interval) % count
+
+
+def seconds_until_rotation(interval_seconds: int, now: float | None = None) -> float:
+    """Return the time left in the current rotation interval."""
+    interval = max(5, int(interval_seconds))
+    timestamp = time.monotonic() if now is None else now
+    remainder = timestamp % interval
+    return interval - remainder if remainder else float(interval)
 
 
 def api_url(base_url: str, suffix: str) -> str:
@@ -419,12 +429,22 @@ class PlayerManager:
                             ])
                         return StreamSpec(signature, command, url)
 
+                    now = time.monotonic()
                     current_index = rotation_index(
-                        len(cameras), screen["rotation_seconds"]
+                        len(cameras), screen["rotation_seconds"], now=now
                     )
                     next_index = (current_index + 1) % len(cameras)
                     current = make_spec(cameras[current_index])
-                    upcoming = make_spec(cameras[next_index]) if len(cameras) > 1 else None
+                    preload_window = min(
+                        PRELOAD_LEAD_SECONDS,
+                        float(max(5, int(screen["rotation_seconds"]))),
+                    )
+                    should_preload = (
+                        len(cameras) > 1
+                        and seconds_until_rotation(screen["rotation_seconds"], now=now)
+                        <= preload_window
+                    )
+                    upcoming = make_spec(cameras[next_index]) if should_preload else None
                     desired[f"{screen['id']}:{position}"] = (current, upcoming)
         return desired
 
@@ -508,7 +528,8 @@ class PlayerManager:
             if player.window_id is None:
                 search = subprocess.run(
                     ["xdotool", "search", "--onlyvisible", "--pid", str(player.process.pid)],
-                    check=False, capture_output=True, text=True, timeout=1,
+                    check=False, capture_output=True, text=True,
+                    timeout=WINDOW_COMMAND_TIMEOUT_SECONDS,
                 )
                 matches = search.stdout.split() if search.returncode == 0 else []
                 if not matches:
@@ -521,18 +542,14 @@ class PlayerManager:
 
             raised = subprocess.run(
                 ["xdotool", "windowraise", player.window_id],
-                check=False, capture_output=True, timeout=1,
+                check=False, capture_output=True,
+                timeout=WINDOW_COMMAND_TIMEOUT_SECONDS,
             )
-            activated = subprocess.run(
-                ["xdotool", "windowactivate", "--sync", player.window_id],
-                check=False, capture_output=True, timeout=1,
-            )
-            success = raised.returncode == 0 and activated.returncode == 0
+            success = raised.returncode == 0
             if not success:
                 print(
                     "ZM Wall: X11-Fensterwechsel fehlgeschlagen "
-                    f"(Fenster {player.window_id}, raise={raised.returncode}, "
-                    f"activate={activated.returncode})",
+                    f"(Fenster {player.window_id}, raise={raised.returncode})",
                     flush=True,
                 )
             return success

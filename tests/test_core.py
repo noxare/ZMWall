@@ -11,6 +11,7 @@ from zmwall.core import (
     parse_camera_keys,
     render_rtsp,
     rotation_index,
+    seconds_until_rotation,
     tile_geometry,
     zm_enabled,
 )
@@ -106,6 +107,13 @@ def test_rotation_index_changes_at_configured_interval():
     assert rotation_index(1, 30, now=90) == 0
 
 
+def test_preload_window_starts_shortly_before_rotation():
+    assert seconds_until_rotation(30, now=10) == 20
+    assert seconds_until_rotation(30, now=25) == 5
+    assert seconds_until_rotation(30, now=29.5) == 0.5
+    assert seconds_until_rotation(30, now=30) == 30
+
+
 def test_old_single_camera_tiles_are_migrated():
     with tempfile.TemporaryDirectory() as directory:
         db_path = str(Path(directory) / "legacy.db")
@@ -173,7 +181,12 @@ def test_player_manager_prepares_current_and_upcoming_stream(monkeypatch):
             "detect_outputs",
             lambda: [{"name": "HDMI-1", "width": 1920, "height": 1080, "x": 0, "y": 0}],
         )
-        monkeypatch.setattr(core.time, "monotonic", lambda: 0)
+        now = [10]
+        monkeypatch.setattr(core.time, "monotonic", lambda: now[0])
+        current, early_upcoming = core.PlayerManager(db_path).desired()[f"{screen_id}:0"]
+        assert early_upcoming is None
+
+        now[0] = 26
         current, upcoming = core.PlayerManager(db_path).desired()[f"{screen_id}:0"]
         assert "/tor?" in current.url
         assert "--hwdec=auto-safe" in current.command
@@ -217,7 +230,7 @@ def test_rotation_keeps_old_player_until_preload_has_video(monkeypatch):
     assert old_process.terminated
 
 
-def test_window_raise_uses_mpv_window_id_and_waits_for_activation(monkeypatch):
+def test_window_raise_uses_mpv_window_id_without_blocking_activation(monkeypatch):
     class FakeProcess:
         def poll(self):
             return None
@@ -234,10 +247,7 @@ def test_window_raise_uses_mpv_window_id_and_waits_for_activation(monkeypatch):
 
     monkeypatch.setattr(core.subprocess, "run", fake_run)
     assert manager._raise(player)
-    assert calls == [
-        ["xdotool", "windowraise", "4242"],
-        ["xdotool", "windowactivate", "--sync", "4242"],
-    ]
+    assert calls == [["xdotool", "windowraise", "4242"]]
 
 
 def test_window_tool_timeout_does_not_block_rotation(monkeypatch):
