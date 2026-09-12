@@ -499,16 +499,23 @@ class PlayerManager:
             return False
         return now - player.ready_since >= PRELOAD_STABLE_SECONDS
 
-    @staticmethod
-    def _command_succeeded(response: dict[str, Any] | None) -> bool:
-        return bool(response and response.get("error") == "success")
-
     def _raise(self, player: Player) -> bool:
+        window = self._ipc(player, ["get_property", "window-id"])
+        window_id = window.get("data") if window and window.get("error") == "success" else None
         try:
-            result = subprocess.run(
-                ["xdotool", "search", "--onlyvisible", "--pid", str(player.process.pid), "windowraise"],
-                check=False, capture_output=True, timeout=1,
-            )
+            if window_id is not None:
+                result = subprocess.run(
+                    ["xdotool", "windowraise", str(window_id)],
+                    check=False, capture_output=True, timeout=1,
+                )
+            else:
+                result = subprocess.run(
+                    [
+                        "xdotool", "search", "--onlyvisible", "--pid",
+                        str(player.process.pid), "windowraise", "%@",
+                    ],
+                    check=False, capture_output=True, timeout=1,
+                )
             return result.returncode == 0
         except (OSError, subprocess.SubprocessError):
             return False
@@ -519,13 +526,21 @@ class PlayerManager:
         # it only once per window; reused double-buffer windows merely need to
         # be raised on subsequent rotations.
         if not player.is_ontop:
-            if not self._command_succeeded(
-                self._ipc(player, ["set_property", "ontop", True])
-            ):
-                return False
+            # mpv can apply this property even when its IPC reply arrives after
+            # our short timeout, so a missing acknowledgement must not block
+            # the rotation.
+            self._ipc(player, ["set_property", "ontop", True])
             player.is_ontop = True
-        if not self._raise(player):
-            return False
+        raised = self._raise(player)
+        if not raised and old is not None and old is not player:
+            # Some Openbox/X11 combinations do not expose a PID-searchable
+            # window to xdotool. Demote the old window and retry with mpv's
+            # direct window-id; either operation is enough to expose the fully
+            # rendered replacement without aborting the logical rotation.
+            self._ipc(old, ["set_property", "ontop", False])
+            old.is_ontop = False
+            self._ipc(player, ["set_property", "ontop", True])
+            self._raise(player)
 
         self.players[key] = player
         self.preloads.pop(key, None)

@@ -266,6 +266,32 @@ def test_two_camera_rotation_reuses_both_ontop_windows(monkeypatch):
     assert ontop_calls == ["second"]
 
 
+def test_window_tool_timeout_does_not_block_rotation(monkeypatch):
+    class FakeProcess:
+        def __init__(self, pid):
+            self.pid = pid
+
+        def poll(self):
+            return None
+
+    manager = core.PlayerManager("unused.db")
+    old = core.Player(
+        "old", FakeProcess(10), "/tmp/not-created-old.sock", is_ontop=True
+    )
+    replacement = core.Player(
+        "next", FakeProcess(11), "/tmp/not-created-next.sock"
+    )
+    manager.players["1:0"] = old
+    manager.preloads["1:0"] = replacement
+    monkeypatch.setattr(manager, "_ipc", lambda player, command: None)
+    monkeypatch.setattr(manager, "_raise", lambda player: False)
+
+    assert manager._promote("1:0", replacement, None)
+    assert manager.players["1:0"] is replacement
+    assert not old.is_ontop
+    assert manager.retired[0][1] is old
+
+
 def test_preload_must_render_frames_stably_before_it_is_ready(monkeypatch):
     class FakeProcess:
         def poll(self):
