@@ -40,13 +40,7 @@ def camera_row(db_path: str, identifier: str):
     return rows[0]
 
 
-def run_probe(row: Any, driver: str | None) -> tuple[int, str]:
-    url = render_rtsp(row, row)
-    env = dict(os.environ)
-    if driver:
-        env["LIBVA_DRIVER_NAME"] = driver
-    else:
-        env.pop("LIBVA_DRIVER_NAME", None)
+def probe_command(ignore_profile_check: bool = False) -> list[str]:
     command = [
         "mpv", "--no-config", "--no-audio", "--vo=null",
         "--hwdec=vaapi-copy", "--hwdec-software-fallback=no",
@@ -54,9 +48,24 @@ def run_probe(row: Any, driver: str | None) -> tuple[int, str]:
         "--demuxer-lavf-o=rtsp_transport=tcp,rw_timeout=15000000",
         "--msg-level=all=no,vd=trace,ffmpeg/video=debug", "--playlist=-",
     ]
+    if ignore_profile_check:
+        command.insert(-1, "--vd-lavc-check-hw-profile=no")
+    return command
+
+
+def run_probe(
+    row: Any, driver: str | None, ignore_profile_check: bool = False,
+) -> tuple[int, str]:
+    url = render_rtsp(row, row)
+    env = dict(os.environ)
+    if driver:
+        env["LIBVA_DRIVER_NAME"] = driver
+    else:
+        env.pop("LIBVA_DRIVER_NAME", None)
     try:
         process = subprocess.Popen(
-            command, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            probe_command(ignore_profile_check), env=env,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True,
         )
     except OSError as error:
@@ -98,12 +107,14 @@ def diagnose_camera(
     drivers: list[str | None] = [None]
     if any(Path("/usr/lib").glob("*/dri/i965_drv_video.so")):
         drivers.append("i965")
-    for driver in drivers:
-        label = driver or "Systemstandard"
-        returncode, output = run_probe(row, driver)
-        lines.extend([
-            "", f"===== VAAPI-Treiber: {label} =====",
-            output.strip() or "mpv lieferte keine Decoderdiagnose.",
-            f"Ergebniscode: {returncode}",
-        ])
+    for ignore_profile_check in (False, True):
+        for driver in drivers:
+            label = driver or "Systemstandard"
+            mode = "Profilprüfung deaktiviert" if ignore_profile_check else "normale Profilprüfung"
+            returncode, output = run_probe(row, driver, ignore_profile_check)
+            lines.extend([
+                "", f"===== VAAPI-Treiber: {label} · {mode} =====",
+                output.strip() or "mpv lieferte keine Decoderdiagnose.",
+                f"Ergebniscode: {returncode}",
+            ])
     return "\n".join(lines) + "\n"

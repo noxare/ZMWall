@@ -1,6 +1,6 @@
 # ZM Wall
 
-Aktueller Entwicklungsstand: **0.2.0-beta.22**
+Aktueller Entwicklungsstand: **0.2.0-beta.23**
 
 ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigurierbare RTSP-Videowand für ZoneMinder. Jeder physische Monitor kann ein eigenes Raster und eine eigene Kamerabelegung erhalten. Die Streams werden direkt mit `mpv` wiedergegeben; die Weboberfläche dient nur zur Verwaltung.
 
@@ -122,6 +122,8 @@ Ab Version `0.2.0-beta.20` zeigt jede Display-Karte dauerhaft die erkannte CPU u
 Ab Version `0.2.0-beta.21` kann `diagnose-stream.py` einen Kamerastream unverändert und ohne Software-Fallback gegen die verfügbaren Intel-VAAPI-Treiber prüfen. Das Werkzeug liest die bestehende Konfiguration, übergibt die kennworthaltige RTSP-URL über stdin an mpv und entfernt URL, Benutzername sowie Kennwort nochmals aus der Ausgabe. Es ändert weder Kamera- noch ZM-Wall-Einstellungen.
 
 Ab Version `0.2.0-beta.22` ist diese Streamdiagnose über den kleinen Link unterhalb der Versionsnummer erreichbar. Auf der geschützten Diagnoseseite lässt sich eine RTSP-Kamera auswählen und prüfen; der bereinigte Bericht kann direkt kopiert oder als Logdatei heruntergeladen werden.
+
+Ab Version `0.2.0-beta.23` führt die Diagnoseseite zusätzlich einen isolierten VAAPI-Versuch mit deaktivierter FFmpeg-Hardwareprofilprüfung aus. Dieser Test verändert weder die normale Wiedergabe noch die gespeicherte Decoderstrategie. Er zeigt, ob ein von FFmpeg abgelehntes, von der GPU aber gemeldetes H.264-Profil technisch dekodiert werden kann.
 
 Jede Grid-Position kann eine oder mehrere Kameras enthalten. Bei mehreren Kameras wechselt ZM Wall nach dem für das betreffende Display eingestellten Intervall zur nächsten Kamera und beginnt nach der letzten wieder von vorn. Der Mindestwert beträgt fünf Sekunden. Ein einzelner Stream bleibt dauerhaft sichtbar.
 
