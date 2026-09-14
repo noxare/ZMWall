@@ -520,6 +520,7 @@ class PlayerManager:
         self.preloads: dict[str, Player] = {}
         self.stop_event = threading.Event()
         self.reload_event = threading.Event()
+        self.layout_reset_event = threading.Event()
         self._ipc_counter = 0
         self.window_host: X11WindowHost | None = None
         self.window_host_failed = False
@@ -587,8 +588,26 @@ class PlayerManager:
                 screen["label"] = f"CPU · {self.decode_hardware['cpu']}"
         return {"hardware": dict(self.decode_hardware), "screens": screens}
 
-    def request_reload(self) -> None:
+    def request_reload(self, reset_layout: bool = False) -> None:
+        """Wake the manager and optionally discard every old grid surface.
+
+        A layout edit may move a camera to another tile. Keeping its old frame
+        visible (as we do during normal rotation) would then show that camera in
+        both places until the former tile's replacement is ready.
+        """
+        if reset_layout:
+            self.layout_reset_event.set()
         self.reload_event.set()
+
+    def _reset_layout_players(self) -> None:
+        """Remove all surfaces from the previous saved layout."""
+        for player in [*self.players.values(), *self.preloads.values()]:
+            self._terminate(player)
+        self.players.clear()
+        self.preloads.clear()
+        if self.window_host is not None:
+            self.window_host.retain_tiles(set())
+        switch_log("all", "layout", "layout-players-reset")
 
     def _terminate(self, player: Player | None) -> None:
         if not player:
@@ -1024,6 +1043,27 @@ class PlayerManager:
             wanted = self.desired()
         except Exception:
             return
+
+        if self.layout_reset_event.is_set():
+            self.layout_reset_event.clear()
+            self._reset_layout_players()
+
+        # A stream has one saved owner. If a stale player survived at a tile
+        # from an earlier layout, never let it coexist with its new owner.
+        desired_owners: dict[str, str] = {}
+        for owner_key, (current, upcoming) in wanted.items():
+            desired_owners[current.stream_key] = owner_key
+            if upcoming is not None:
+                desired_owners[upcoming.stream_key] = owner_key
+        for collection in (self.players, self.preloads):
+            for player_key, player in list(collection.items()):
+                owner_key = desired_owners.get(player.stream_key)
+                if owner_key is not None and owner_key != player_key:
+                    switch_log(
+                        player_key, player.label, "stale-layout-owner",
+                        expected_tile=owner_key,
+                    )
+                    self._terminate(collection.pop(player_key))
 
         for key in set(self.players) - set(wanted):
             self._terminate(self.players.pop(key))

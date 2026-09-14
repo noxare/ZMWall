@@ -420,7 +420,7 @@ def save_screen():
             ).lastrowid
         db.execute("DELETE FROM tiles WHERE screen_id=? AND position>=?", (screen_id, rows * cols))
         db.execute("DELETE FROM tile_cameras WHERE screen_id=? AND position>=?", (screen_id, rows * cols))
-    manager.request_reload()
+    manager.request_reload(reset_layout=True)
     flash(t("monitor_layout_saved"), "ok")
     return redirect(url_for("index"))
 
@@ -479,7 +479,7 @@ def save_layouts():
                     [(screen_id, position, key, order) for order, key in enumerate(accepted)],
                 )
 
-    manager.request_reload()
+    manager.request_reload(reset_layout=True)
     flash(t("all_layouts_saved"), "ok")
     return redirect(url_for("index"))
 
@@ -489,7 +489,7 @@ def save_layouts():
 def delete_screen(screen_id: int):
     with connect(DB_PATH) as db:
         db.execute("DELETE FROM screens WHERE id=?", (screen_id,))
-    manager.request_reload()
+    manager.request_reload(reset_layout=True)
     return redirect(url_for("index"))
 
 

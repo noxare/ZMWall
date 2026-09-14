@@ -2,7 +2,7 @@
 
 [Deutsch](README.md) · **English**
 
-Current development version: **0.3.0-beta.1**
+Current development version: **0.3.0-beta.2**
 
 ZM Wall turns a lightweight Debian device into a network-managed RTSP video wall for ZoneMinder. Each physical display can use its own grid and camera assignment. ZM Wall uses ZoneMinder's integrated RTSP restream feature: it does not open another direct connection to each camera. Instead, the streams already provided by ZoneMinder are rendered with `mpv`, while the web interface is used for administration.
 
@@ -113,6 +113,8 @@ For special cases, an individual **RTSP host (optional)** can still be configure
 ZM Wall monitors every started `mpv` process. If an RTSP stream ends or reaches the network read timeout, the player is terminated and restarted at short intervals. The image returns automatically as soon as the camera and RTSP server are available again; no wall restart is required.
 
 For rotating positions, the next stream starts in parallel in a hidden surface five seconds before the switch. It must render real video frames and remain stable for at least 0.75 seconds. The previous image remains visible until the new stream is ready. Permanent X11 container windows and separate child surfaces make the final switch within the X server, avoiding the former black interval between top-level windows.
+
+When a changed layout is saved, ZM Wall discards all players and preload surfaces belonging to the previous layout before starting the new assignments. This prevents a moved camera from remaining visible at both its former and new grid positions. A runtime ownership check additionally removes stale players if their stream now belongs to another tile. Seamless preloading for normal camera rotation remains active.
 
 Decoder selection is performed per stream. ZM Wall tries safe automatic hardware decoding first, then compatible copy-back strategies, hardware-specific fallbacks detected on the device, and finally CPU decoding. The web interface displays the detected CPU and GPU model for every monitor and the active `CPU`, `GPU`, `waiting`, or `buffering` state for every assigned stream.
 

@@ -371,6 +371,93 @@ def test_rotation_keeps_old_player_until_preload_has_video(monkeypatch):
     assert old_process.terminated
 
 
+def test_saved_layout_reset_discards_old_tile_images_before_relaunch(monkeypatch):
+    class FakeProcess:
+        def __init__(self, pid):
+            self.pid = pid
+            self.terminated = False
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            self.terminated = True
+
+    manager = core.PlayerManager("unused.db")
+    old_a = core.Player(
+        "old-a", FakeProcess(101), "/tmp/old-a.sock",
+        tile_key="1:0", stream_key="1:10",
+    )
+    old_b = core.Player(
+        "old-b", FakeProcess(102), "/tmp/old-b.sock",
+        tile_key="1:1", stream_key="1:11",
+    )
+    manager.players = {"1:0": old_a, "1:1": old_b}
+    wanted = {
+        "1:0": (core.StreamSpec("new-b", ["mpv"], "rtsp://b", stream_key="1:11"), None),
+        "1:1": (core.StreamSpec("new-a", ["mpv"], "rtsp://a", stream_key="1:10"), None),
+    }
+    launched = []
+
+    def fake_launch(key, spec, hidden):
+        launched.append((key, spec.stream_key, hidden))
+        return core.Player(
+            spec.signature, FakeProcess(200 + len(launched)), f"/tmp/new-{len(launched)}.sock",
+            tile_key=key, stream_key=spec.stream_key,
+        )
+
+    monkeypatch.setattr(manager, "desired", lambda: wanted)
+    monkeypatch.setattr(manager, "_launch", fake_launch)
+    monkeypatch.setattr(manager, "_ready", lambda _player: False)
+    manager.request_reload(reset_layout=True)
+    manager.reconcile()
+
+    assert old_a.process.terminated
+    assert old_b.process.terminated
+    assert launched == [("1:0", "1:11", False), ("1:1", "1:10", False)]
+    assert manager.players["1:0"].stream_key == "1:11"
+    assert manager.players["1:1"].stream_key == "1:10"
+
+
+def test_stale_stream_owner_cannot_remain_visible_on_another_tile(monkeypatch):
+    class FakeProcess:
+        def __init__(self, pid):
+            self.pid = pid
+            self.terminated = False
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            self.terminated = True
+
+    manager = core.PlayerManager("unused.db")
+    stale = core.Player(
+        "old-a", FakeProcess(301), "/tmp/stale.sock",
+        tile_key="1:0", stream_key="1:10",
+    )
+    manager.players["1:0"] = stale
+    wanted = {
+        "1:0": (core.StreamSpec("new-b", ["mpv"], "rtsp://b", stream_key="1:11"), None),
+        "1:1": (core.StreamSpec("new-a", ["mpv"], "rtsp://a", stream_key="1:10"), None),
+    }
+
+    def fake_launch(key, spec, hidden):
+        return core.Player(
+            spec.signature, FakeProcess(400), "/tmp/new.sock",
+            tile_key=key, stream_key=spec.stream_key,
+        )
+
+    monkeypatch.setattr(manager, "desired", lambda: wanted)
+    monkeypatch.setattr(manager, "_launch", fake_launch)
+    monkeypatch.setattr(manager, "_ready", lambda _player: False)
+    manager.reconcile()
+
+    assert stale.process.terminated
+    owners = {player.stream_key: key for key, player in manager.players.items()}
+    assert owners == {"1:11": "1:0", "1:10": "1:1"}
+
+
 def test_window_raise_uses_mpv_window_id_without_blocking_activation(monkeypatch):
     class FakeProcess:
         def poll(self):

@@ -2,7 +2,7 @@
 
 **Deutsch** · [English](README.en.md)
 
-Aktueller Entwicklungsstand: **0.3.0-beta.1**
+Aktueller Entwicklungsstand: **0.3.0-beta.2**
 
 ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigurierbare RTSP-Videowand für ZoneMinder. Jeder physische Monitor kann ein eigenes Raster und eine eigene Kamerabelegung erhalten. ZM Wall verwendet die integrierte RTSP-Restream-Funktion von ZoneMinder: Die Streams werden nicht zusätzlich direkt von den Kameras abgerufen, sondern von ZoneMinder bereitgestellt und mit `mpv` wiedergegeben. Die Weboberfläche dient zur Verwaltung.
 
@@ -135,6 +135,8 @@ Ab Version `0.2.0-beta.24` verwendet die automatische Intel-Decoderkette den in 
 Version `0.3.0-beta` markiert den erreichten Meilenstein aus unterbrechungsfreiem Kamerawechsel, verdecktem Stream-Preloading, automatischer hardwareabhängiger Decoderwahl und streambezogener CPU-/GPU-Anzeige. Die integrierte Webdiagnose ermöglicht die Prüfung problematischer Kamerastreams direkt auf dem Zielsystem.
 
 Ab Version `0.3.0-beta.1` steht die Weboberfläche auf Deutsch und Englisch zur Verfügung. Ohne manuelle Auswahl folgt sie der vom Browser gemeldeten System-/Vorzugsprache; die Auswahl in der Kopfzeile wird auf dem Verwaltungsgerät gespeichert.
+
+Ab Version `0.3.0-beta.2` werden bei einer gespeicherten Layoutänderung alle Player und Preload-Flächen des vorherigen Layouts verworfen, bevor die neue Belegung gestartet wird. Dadurch kann eine verschobene Kamera nicht gleichzeitig an ihrer alten und neuen Grid-Position sichtbar bleiben. Eine zusätzliche Laufzeitprüfung beendet veraltete Player, sobald derselbe Stream einer anderen Position gehört. Das unterbrechungsfreie Preloading bei der normalen Kamerarotation bleibt unverändert aktiv.
 
 Jede Grid-Position kann eine oder mehrere Kameras enthalten. Bei mehreren Kameras wechselt ZM Wall nach dem für das betreffende Display eingestellten Intervall zur nächsten Kamera und beginnt nach der letzten wieder von vorn. Der Mindestwert beträgt fünf Sekunden. Ein einzelner Stream bleibt dauerhaft sichtbar.
 
