@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .core import connect, render_rtsp
+from .network import diagnostic_lines
 
 
 def redact(text: str, url: str, username: str, password: str) -> str:
@@ -102,6 +103,7 @@ def diagnose_camera(
         f"mpv: {_mpv_version()}",
         f"CPU: {hardware.get('cpu', 'unbekannt')}",
         f"GPU: {hardware.get('gpu', 'unbekannt')}",
+        *diagnostic_lines(),
         f"Kamera: {row['name']} (ID {row['zm_id']}, key {row['camera_key']})",
     ]
     drivers: list[str | None] = [None]

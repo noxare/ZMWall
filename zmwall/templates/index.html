@@ -15,6 +15,8 @@
       data-i18n-hardware-decoding="{{ t('hardware_decoding', device='{device}', method='{method}') }}"
       data-i18n-software-decoding="{{ t('software_decoding', device='{device}') }}"
       data-i18n-hidden-preload="{{ t('hidden_preload', resource='{resource}') }}"
+      data-i18n-network-lan="{{ t('network_lan') }}" data-i18n-network-wifi="{{ t('network_wifi') }}"
+      data-i18n-network-offline="{{ t('network_offline') }}"
       data-i18n-all-assigned="{{ t('all_assigned') }}">
 <header>
   <div class="brand"><h1>ZM Wall</h1><p>{{ t('wall_subtitle') }} · {{ version }}</p><a class="diagnostics-link" href="{{ url_for('diagnostics') }}">{{ t('diagnostics_open') }}</a></div>
@@ -46,7 +48,14 @@
         </form>
       {% endif %}
     </div>
-    <span class="live">{{ t('display_active') }}</span>
+    <div class="live-status">
+      <span class="live">{{ t('display_active') }}</span>
+      <span id="network-status" class="network-status {{ runtime_network.state }}">
+        {% if runtime_network.connections %}
+          {% for connection in runtime_network.connections %}{{ t('network_wifi') if connection.type == 'wifi' else t('network_lan') }} ({{ connection.interface }}){% if not loop.last %} + {% endif %}{% endfor %}
+        {% else %}{{ t('network_offline') }}{% endif %}
+      </span>
+    </div>
   </div>
 </header>
 <main>

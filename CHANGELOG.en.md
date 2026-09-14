@@ -8,6 +8,18 @@ This changelog documents ZM Wall's features, operational flows, technical decisi
 
 - No changes yet.
 
+## 0.3.0-beta.4 – 2026-09-14
+
+### Added
+
+- The live status below **Display active** now lists every active physical Ethernet and Wi-Fi connection with its interface name. Both paths are shown when wired and wireless networking are connected concurrently.
+- Stream diagnostics now include the connection type, interface, IPv4 address, gateway, link speed, and default-route marker. For Wi-Fi, the report also includes SSID, signal strength, and TX bitrate when the system exposes them.
+- Virtual networks such as Docker bridges are not reported as active device connections unless they own a default route.
+
+### Tests
+
+- Coverage for concurrent Ethernet/Wi-Fi, virtual-interface filtering, and formatted network details in the diagnostic report.
+
 ## 0.3.0-beta.3 – 2026-09-14
 
 ### Documentation

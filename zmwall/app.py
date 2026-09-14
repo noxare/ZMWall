@@ -218,6 +218,7 @@ def index():
         screens=screens, assignments=assignments, outputs=detect_outputs(), version=__version__,
         update_status=localized_update_state(),
         runtime_hardware=runtime_status["hardware"],
+        runtime_network=runtime_status["network"],
     )
 
 
