@@ -8,6 +8,19 @@ This changelog documents ZM Wall's features, operational flows, technical decisi
 
 - No changes yet.
 
+## 0.3.0-beta.6 – 2026-09-14
+
+### Fixed
+
+- A transient IPC timeout returned `unknown` for `hwdec-current`. This was incorrectly treated as CPU decoding, causing an already confirmed `vaapi-copy` player to be discarded and the decoder chain to advance unnecessarily.
+- Confirmed GPU decoding is now preserved when a status query is temporarily unknown. Only mpv's explicit `hwdec=no` response may trigger another decoder attempt.
+- An unknown decoder state is no longer misleadingly displayed as CPU in the web interface.
+
+### Diagnostics and tests
+
+- First-frame events now log the retained effective decoder separately from the status currently reported by mpv.
+- Regression coverage now includes preserving a confirmed GPU and handling a still-unknown decoder state.
+
 ## 0.3.0-beta.5 – 2026-09-14
 
 ### Fixed

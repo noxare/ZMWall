@@ -288,6 +288,65 @@ def test_failed_copy_advances_to_installed_intel_driver(monkeypatch):
     assert manager.hwdec_preferences["1:88"] == "vaapi-copy-force-profile"
 
 
+def test_transient_unknown_hwdec_preserves_confirmed_gpu(monkeypatch):
+    manager = core.PlayerManager("unused.db")
+    manager.hwdec_strategies = [
+        "auto", "auto-copy", "vaapi-copy-force-profile", "vaapi-i965",
+    ]
+    player = core.Player(
+        "stream", SimpleNamespace(pid=44, poll=lambda: None), "/tmp/gpu.sock",
+        stream_key="1:107", decode_strategy="vaapi-copy-force-profile",
+        decode_device="gpu", hwdec="vaapi-copy",
+    )
+
+    def fake_ipc(_player, command):
+        name = command[-1]
+        values = {
+            "video-params": {"w": 640, "h": 360, "pixelformat": "nv12"},
+            "video-frame-info": {"picture-type": "P"},
+            "hwdec-current": "unknown",
+            "hwdec-interop": "none",
+            "window-id": 1234,
+            "track-list": [],
+        }
+        return {"error": "success", "data": values[name]}
+
+    monkeypatch.setattr(manager, "_ipc", fake_ipc)
+    assert not manager._ready(player)
+    assert player.decode_device == "gpu"
+    assert player.hwdec == "vaapi-copy"
+    assert "1:107" not in manager.hwdec_preferences
+    assert not manager.reload_event.is_set()
+
+
+def test_unknown_hwdec_is_not_misreported_as_cpu(monkeypatch):
+    manager = core.PlayerManager("unused.db")
+    manager.hwdec_strategies = ["auto", "auto-copy"]
+    player = core.Player(
+        "stream", SimpleNamespace(pid=45, poll=lambda: None), "/tmp/pending.sock",
+        stream_key="1:108", decode_strategy="auto",
+    )
+
+    def fake_ipc(_player, command):
+        name = command[-1]
+        values = {
+            "video-params": {"w": 640, "h": 360},
+            "video-frame-info": {"picture-type": "P"},
+            "hwdec-current": "unknown",
+            "hwdec-interop": "none",
+            "window-id": 1234,
+            "track-list": [],
+        }
+        return {"error": "success", "data": values[name]}
+
+    monkeypatch.setattr(manager, "_ipc", fake_ipc)
+    assert not manager._ready(player)
+    assert player.decode_device == "unknown"
+    assert player.hwdec == "unknown"
+    assert "1:108" not in manager.hwdec_preferences
+    assert not manager.reload_event.is_set()
+
+
 def test_forced_profile_strategy_uses_vaapi_copy():
     assert core.hwdec_option("vaapi-copy-force-profile") == "vaapi-copy"
     assert core.hwdec_arguments("vaapi-copy-force-profile") == [

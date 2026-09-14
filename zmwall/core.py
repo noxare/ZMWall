@@ -893,15 +893,25 @@ class PlayerManager:
                 {},
             )
             decoded_params = video_params.get("data", {})
-            player.hwdec = str(hardware_name or "no")
-            player.decode_device = "gpu" if player.hwdec not in {"no", "unknown", ""} else "cpu"
-            player.codec = str(video_track.get("codec", "unknown"))
+            reported_hwdec = str(hardware_name or "unknown")
+            if reported_hwdec == "no":
+                player.hwdec = "no"
+                player.decode_device = "cpu"
+            elif reported_hwdec not in {"unknown", ""}:
+                player.hwdec = reported_hwdec
+                player.decode_device = "gpu"
+            # An IPC timeout is not evidence of software decoding. Preserve a
+            # previously confirmed decoder instead of demoting a working GPU
+            # player and advancing to a worse fallback strategy.
+            reported_codec = video_track.get("codec")
+            if reported_codec:
+                player.codec = str(reported_codec)
             try:
                 strategy_index = self.hwdec_strategies.index(player.decode_strategy)
                 next_strategy = self.hwdec_strategies[strategy_index + 1]
             except (ValueError, IndexError):
                 next_strategy = None
-            if player.decode_device == "cpu" and next_strategy is not None:
+            if reported_hwdec == "no" and next_strategy is not None:
                 self.hwdec_preferences[player.stream_key] = next_strategy
                 self.reload_event.set()
                 switch_log(
@@ -920,7 +930,8 @@ class PlayerManager:
                 size=f"{decoded_params.get('w', '?')}x{decoded_params.get('h', '?')}",
                 pixelformat=decoded_params.get("pixelformat", "unknown"),
                 hw_pixelformat=decoded_params.get("hw-pixelformat", "none"),
-                hwdec=hardware_name, interop=interop_name,
+                hwdec=player.hwdec, reported_hwdec=reported_hwdec,
+                interop=interop_name,
                 strategy=player.decode_strategy,
                 launch_ms=round((now - player.launched_at) * 1000),
                 probe_ms=round((now - probe_started) * 1000),

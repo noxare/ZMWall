@@ -8,6 +8,19 @@ Dieses Changelog dokumentiert die Entwicklung von ZM Wall mit Funktionen, Betrie
 
 - Noch keine Änderungen.
 
+## 0.3.0-beta.6 – 2026-09-14
+
+### Behoben
+
+- Ein vorübergehender IPC-Timeout lieferte für `hwdec-current` den Zustand `unknown`. Dieser wurde fälschlich als CPU-Decoding gewertet, wodurch ein bereits bestätigter `vaapi-copy`-Player verworfen und die Decoderkette unnötig fortgesetzt wurde.
+- Eine einmal bestätigte GPU-Decodierung bleibt jetzt bei einer vorübergehend unbekannten Statusabfrage erhalten. Nur die eindeutige mpv-Rückmeldung `hwdec=no` darf einen weiteren Decoder-Versuch auslösen.
+- Ein unbekannter Decoderzustand wird in der Weboberfläche nicht mehr irreführend als CPU angezeigt.
+
+### Diagnose und Tests
+
+- First-Frame-Ereignisse protokollieren jetzt den effektiv beibehaltenen und den aktuell von mpv gemeldeten Decoderzustand getrennt.
+- Regressionstests decken den Erhalt einer bestätigten GPU sowie einen noch unbekannten Decoderstatus ab.
+
 ## 0.3.0-beta.5 – 2026-09-14
 
 ### Behoben
