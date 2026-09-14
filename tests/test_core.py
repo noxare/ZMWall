@@ -288,6 +288,76 @@ def test_failed_copy_advances_to_installed_intel_driver(monkeypatch):
     assert manager.hwdec_preferences["1:88"] == "vaapi-copy-force-profile"
 
 
+def test_intel_h264_baseline_skips_redundant_auto_copy(monkeypatch):
+    monkeypatch.setattr(
+        core, "detect_decode_hardware",
+        lambda: {"cpu": "Intel Core i5-2500", "gpu": "Intel 2nd Generation Graphics"},
+    )
+    manager = core.PlayerManager("unused.db")
+    manager.hwdec_strategies = ["auto", "auto-copy", "vaapi-copy-force-profile"]
+    player = core.Player(
+        "stream", SimpleNamespace(pid=46, poll=lambda: None), "/tmp/baseline.sock",
+        stream_key="1:107", decode_strategy="auto",
+    )
+
+    assert manager._next_hwdec_strategy(
+        player, {"codec": "h264", "codec-profile": "Baseline"}
+    ) == "vaapi-copy-force-profile"
+
+
+def test_confirmed_hwdec_preference_is_persisted_per_gpu(monkeypatch, tmp_path):
+    db_path = str(tmp_path / "preferences.db")
+    init_db(db_path)
+    monkeypatch.setattr(
+        core, "detect_decode_hardware",
+        lambda: {"cpu": "Intel Core i5-2500", "gpu": "Intel Sandy Bridge Graphics"},
+    )
+    first = core.PlayerManager(db_path)
+    first.hwdec_strategies = ["auto", "vaapi-copy-force-profile"]
+    first._remember_hwdec_preference("1:107", "vaapi-copy-force-profile")
+
+    second = core.PlayerManager(db_path)
+
+    assert second.hwdec_preferences["1:107"] == "vaapi-copy-force-profile"
+
+
+def test_reconcile_limits_simultaneous_hwdec_upgrade_preloads(monkeypatch):
+    class FakeProcess:
+        def poll(self):
+            return None
+
+    manager = core.PlayerManager("unused.db")
+    wanted = {}
+    for index in range(3):
+        key = f"1:{index}"
+        stream_key = f"1:{100 + index}"
+        manager.players[key] = core.Player(
+            f"old-{index}", FakeProcess(), f"/tmp/old-{index}.sock",
+            stream_key=stream_key, decode_strategy="auto",
+        )
+        wanted[key] = (
+            core.StreamSpec(
+                f"new-{index}", ["mpv"], "rtsp://test", stream_key=stream_key,
+                decode_strategy="vaapi-copy-force-profile",
+            ),
+            None,
+        )
+
+    monkeypatch.setattr(manager, "desired", lambda: wanted)
+
+    def fake_launch(key, spec, hidden):
+        return core.Player(
+            spec.signature, FakeProcess(), f"/tmp/{key}.sock",
+            stream_key=spec.stream_key, decode_strategy=spec.decode_strategy,
+        )
+
+    monkeypatch.setattr(manager, "_launch", fake_launch)
+    manager.reconcile()
+
+    assert len(manager.preloads) == core.MAX_CONCURRENT_HWDEC_UPGRADES
+    assert "1:2" not in manager.preloads
+
+
 def test_transient_unknown_hwdec_preserves_confirmed_gpu(monkeypatch):
     manager = core.PlayerManager("unused.db")
     manager.hwdec_strategies = [
@@ -315,7 +385,7 @@ def test_transient_unknown_hwdec_preserves_confirmed_gpu(monkeypatch):
     assert not manager._ready(player)
     assert player.decode_device == "gpu"
     assert player.hwdec == "vaapi-copy"
-    assert "1:107" not in manager.hwdec_preferences
+    assert manager.hwdec_preferences["1:107"] == "vaapi-copy-force-profile"
     assert not manager.reload_event.is_set()
 
 

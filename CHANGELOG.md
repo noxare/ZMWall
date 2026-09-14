@@ -8,6 +8,18 @@ Dieses Changelog dokumentiert die Entwicklung von ZM Wall mit Funktionen, Betrie
 
 - Noch keine Änderungen.
 
+## 0.3.0-beta.7 – 2026-09-14
+
+### Verbessert
+
+- Intel-H.264-Baseline-Streams überspringen nach einem eindeutigen CPU-Ergebnis den bereits als ungeeignet bekannten `auto-copy`-Zwischenschritt und wechseln direkt zur bestätigten VAAPI-Kompatibilitätsstrategie.
+- Es werden höchstens zwei Decoder-Upgrades gleichzeitig vorgepuffert. Dadurch erzeugt ein großes Grid nicht mehr zeitweise einen Ersatzprozess für jede Position und überlastet alte CPUs und GPUs während der automatischen Erkennung.
+- Erfolgreiche Decoderstrategien werden pro Stream und GPU-Modell in der lokalen Datenbank gespeichert. Nach einem ZM-Wall-Update oder Neustart beginnt ein bekannter Stream direkt mit seiner zuletzt bestätigten Hardwarekonfiguration.
+
+### Tests
+
+- Abdeckung für die verkürzte Intel-Baseline-Kette, hardwarebezogene Persistenz und die Begrenzung gleichzeitig laufender Decoder-Upgrades.
+
 ## 0.3.0-beta.6 – 2026-09-14
 
 ### Behoben

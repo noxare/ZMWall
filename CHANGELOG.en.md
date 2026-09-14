@@ -8,6 +8,18 @@ This changelog documents ZM Wall's features, operational flows, technical decisi
 
 - No changes yet.
 
+## 0.3.0-beta.7 – 2026-09-14
+
+### Improved
+
+- Intel H.264 Baseline streams skip the already ineffective `auto-copy` intermediate attempt after an explicit CPU result and proceed directly to the confirmed VAAPI compatibility strategy.
+- At most two decoder upgrades are preloaded concurrently. A large grid therefore no longer creates a replacement process for every position at once and overloads older CPUs and GPUs during automatic detection.
+- Successful decoder strategies are persisted in the local database per stream and GPU model. After a ZM Wall update or restart, a known stream starts directly with its last confirmed hardware configuration.
+
+### Tests
+
+- Coverage for the shortened Intel Baseline chain, hardware-specific persistence, and the concurrent decoder-upgrade limit.
+
 ## 0.3.0-beta.6 – 2026-09-14
 
 ### Fixed

@@ -25,6 +25,7 @@ PRELOAD_STABLE_SECONDS = 0.75
 PRELOAD_LEAD_SECONDS = 5.0
 WINDOW_COMMAND_TIMEOUT_SECONDS = 0.20
 WINDOW_SWITCH_SETTLE_SECONDS = 0.05
+MAX_CONCURRENT_HWDEC_UPGRADES = 2
 
 
 def _clean_hardware_name(value: str) -> str:
@@ -171,6 +172,13 @@ CREATE TABLE IF NOT EXISTS tile_cameras (
   camera_key TEXT NOT NULL UNIQUE REFERENCES cameras(camera_key) ON DELETE CASCADE,
   sort_order INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY(screen_id, position, camera_key)
+);
+CREATE TABLE IF NOT EXISTS hwdec_preferences (
+  stream_key TEXT NOT NULL,
+  gpu_model TEXT NOT NULL,
+  strategy TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY(stream_key, gpu_model)
 );
 """
 
@@ -535,7 +543,62 @@ class PlayerManager:
         self.window_host_failed = False
         self.decode_hardware = detect_decode_hardware()
         self.hwdec_strategies = detect_hwdec_strategies(self.decode_hardware)
-        self.hwdec_preferences: dict[str, str] = {}
+        self.hwdec_preferences = self._load_hwdec_preferences()
+
+    def _load_hwdec_preferences(self) -> dict[str, str]:
+        """Load only strategies valid for the GPU and drivers on this client."""
+        if not Path(self.db_path).exists():
+            return {}
+        try:
+            with connect(self.db_path) as db:
+                rows = db.execute(
+                    "SELECT stream_key,strategy FROM hwdec_preferences WHERE gpu_model=?",
+                    (self.decode_hardware.get("gpu", ""),),
+                ).fetchall()
+        except sqlite3.Error:
+            return {}
+        return {
+            str(row["stream_key"]): str(row["strategy"])
+            for row in rows
+            if row["strategy"] in self.hwdec_strategies
+        }
+
+    def _remember_hwdec_preference(self, stream_key: str, strategy: str) -> None:
+        """Persist a confirmed strategy separately for each physical GPU."""
+        if strategy not in self.hwdec_strategies:
+            return
+        self.hwdec_preferences[stream_key] = strategy
+        if not Path(self.db_path).exists():
+            return
+        try:
+            with connect(self.db_path) as db:
+                db.execute(
+                    """INSERT INTO hwdec_preferences(stream_key,gpu_model,strategy,updated_at)
+                       VALUES(?,?,?,CURRENT_TIMESTAMP)
+                       ON CONFLICT(stream_key,gpu_model) DO UPDATE SET
+                         strategy=excluded.strategy,updated_at=CURRENT_TIMESTAMP""",
+                    (stream_key, self.decode_hardware.get("gpu", ""), strategy),
+                )
+        except sqlite3.Error:
+            pass
+
+    def _next_hwdec_strategy(self, player: Player, video_track: dict[str, Any]) -> str | None:
+        """Choose the next attempt, skipping a known-bad Intel Baseline detour."""
+        codec = str(video_track.get("codec", player.codec)).lower()
+        profile = str(video_track.get("codec-profile", "")).lower()
+        forced = "vaapi-copy-force-profile"
+        is_intel = "intel" in self.decode_hardware.get("gpu", "").lower()
+        if (
+            is_intel and codec == "h264" and profile == "baseline"
+            and player.decode_strategy in {"auto", "auto-copy"}
+            and forced in self.hwdec_strategies
+        ):
+            return forced
+        try:
+            index = self.hwdec_strategies.index(player.decode_strategy)
+            return self.hwdec_strategies[index + 1]
+        except (ValueError, IndexError):
+            return None
 
     def runtime_status(self) -> dict[str, Any]:
         """Return the actual decoder in use, grouped by physical monitor."""
@@ -906,11 +969,7 @@ class PlayerManager:
             reported_codec = video_track.get("codec")
             if reported_codec:
                 player.codec = str(reported_codec)
-            try:
-                strategy_index = self.hwdec_strategies.index(player.decode_strategy)
-                next_strategy = self.hwdec_strategies[strategy_index + 1]
-            except (ValueError, IndexError):
-                next_strategy = None
+            next_strategy = self._next_hwdec_strategy(player, video_track)
             if reported_hwdec == "no" and next_strategy is not None:
                 self.hwdec_preferences[player.stream_key] = next_strategy
                 self.reload_event.set()
@@ -920,6 +979,8 @@ class PlayerManager:
                     codec=player.codec, from_strategy=player.decode_strategy,
                     to_strategy=next_strategy,
                 )
+            elif player.decode_device == "gpu":
+                self._remember_hwdec_preference(player.stream_key, player.decode_strategy)
             switch_log(
                 player.tile_key, player.label, "first-frame",
                 pid=getattr(player.process, "pid", "unknown"),
@@ -1096,6 +1157,14 @@ class PlayerManager:
         if self.window_host is not None:
             self.window_host.retain_tiles(set(wanted))
 
+        hwdec_upgrades = sum(
+            1
+            for key, preload in self.preloads.items()
+            if (active := self.players.get(key)) is not None
+            and active.stream_key == preload.stream_key
+            and active.decode_strategy != preload.decode_strategy
+        )
+
         for key, (current, upcoming) in wanted.items():
             active = self.players.get(key)
             preload = self.preloads.get(key)
@@ -1126,17 +1195,27 @@ class PlayerManager:
             elif active.signature != current.signature:
                 # Never remove the visible stream until its replacement has
                 # decoded a real frame.
+                is_hwdec_upgrade = (
+                    active.stream_key == current.stream_key
+                    and active.decode_strategy != current.decode_strategy
+                )
                 if preload and preload.signature == current.signature:
                     if self._ready(preload):
                         self._promote(key, preload)
                         active = preload
                         preload = None
+                        if is_hwdec_upgrade:
+                            hwdec_upgrades = max(0, hwdec_upgrades - 1)
                 else:
                     if preload:
                         self._terminate(preload)
+                    if is_hwdec_upgrade and hwdec_upgrades >= MAX_CONCURRENT_HWDEC_UPGRADES:
+                        continue
                     preload = self._launch(key, current, hidden=True)
                     if preload:
                         self.preloads[key] = preload
+                        if is_hwdec_upgrade:
+                            hwdec_upgrades += 1
 
             if active and active.signature == current.signature:
                 # Also inspect permanently assigned streams. Previously only
