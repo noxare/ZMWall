@@ -106,7 +106,7 @@ summary { cursor: pointer; font-weight: 700; }
 .stream-resolution.match, .resolution-state.match { border-color: #1b755e; background: #10251f; color: #9cf3d8; }
 .stream-resolution.mismatch, .resolution-state.mismatch { border-color: #806a28; background: #29230f; color: #f2c94c; }
 .stream-resolution.gpu-limit, .resolution-state.gpu-limit,
-.stream-resolution.error, .resolution-state.error { border-color: #8b353a; background: #35181b; color: #ff9b9b; }
+.resolution-state.error { border-color: #8b353a; background: #35181b; color: #ff9b9b; }
 .resolution-legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 3px 9px; color: var(--muted); font-size: 9px; }
 .resolution-legend span::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 4px; border-radius: 50%; background: #627583; }
 .resolution-legend .match::before { background: #27d39f; }
