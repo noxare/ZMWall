@@ -8,6 +8,18 @@ This changelog documents ZM Wall's features, operational flows, technical decisi
 
 - No changes yet.
 
+## 0.3.0-beta.8 – 2026-09-14
+
+### Fixed
+
+- When an older GPU reached its practical concurrent decoder limit, a forced VAAPI player could previously remain indefinitely without a stable frame and appeared only as `…` in the web interface.
+- A hardware upgrade is now stopped cleanly after 30 seconds without confirmed GPU decoding. An existing visible CPU player remains active without a visual interruption; after a direct start with a remembered GPU strategy, an explicit software decoder is started instead.
+- Capacity-dependent CPU fallbacks are not persisted, allowing the stream to try the GPU again with a smaller layout or on different hardware.
+
+### Tests
+
+- Coverage for GPU-upgrade timeout, retaining the visible CPU player, and explicit software fallback after a blocked remembered hardware start.
+
 ## 0.3.0-beta.7 – 2026-09-14
 
 ### Improved

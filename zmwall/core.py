@@ -26,6 +26,7 @@ PRELOAD_LEAD_SECONDS = 5.0
 WINDOW_COMMAND_TIMEOUT_SECONDS = 0.20
 WINDOW_SWITCH_SETTLE_SECONDS = 0.05
 MAX_CONCURRENT_HWDEC_UPGRADES = 2
+HWDEC_START_TIMEOUT_SECONDS = 30.0
 
 
 def _clean_hardware_name(value: str) -> str:
@@ -599,6 +600,31 @@ class PlayerManager:
             return self.hwdec_strategies[index + 1]
         except (ValueError, IndexError):
             return None
+
+    @staticmethod
+    def _hwdec_start_timed_out(player: Player, now: float | None = None) -> bool:
+        """Detect a forced hardware player that never produced a usable frame."""
+        if (
+            player.decode_strategy != "vaapi-copy-force-profile"
+            or player.decode_device == "gpu"
+            or player.launched_at <= 0
+        ):
+            return False
+        timestamp = time.monotonic() if now is None else now
+        return timestamp - player.launched_at >= HWDEC_START_TIMEOUT_SECONDS
+
+    def _abandon_hwdec_upgrade(self, key: str, active: Player, preload: Player) -> None:
+        """Keep the visible CPU player when the GPU has no free capacity."""
+        self.hwdec_preferences[preload.stream_key] = active.decode_strategy
+        self._terminate(preload)
+        self.preloads.pop(key, None)
+        self.reload_event.set()
+        switch_log(
+            key, preload.label, "hwdec-capacity-fallback",
+            attempted=preload.decode_strategy,
+            retained=active.decode_strategy,
+            timeout_seconds=HWDEC_START_TIMEOUT_SECONDS,
+        )
 
     def runtime_status(self) -> dict[str, Any]:
         """Return the actual decoder in use, grouped by physical monitor."""
@@ -1206,6 +1232,10 @@ class PlayerManager:
                         preload = None
                         if is_hwdec_upgrade:
                             hwdec_upgrades = max(0, hwdec_upgrades - 1)
+                    elif is_hwdec_upgrade and self._hwdec_start_timed_out(preload):
+                        self._abandon_hwdec_upgrade(key, active, preload)
+                        preload = None
+                        hwdec_upgrades = max(0, hwdec_upgrades - 1)
                 else:
                     if preload:
                         self._terminate(preload)
@@ -1221,6 +1251,18 @@ class PlayerManager:
                 # Also inspect permanently assigned streams. Previously only
                 # preloads were probed, which left their UI decoder state unknown.
                 self._ready(active)
+                if self._hwdec_start_timed_out(active):
+                    # This can happen when a remembered GPU strategy is started
+                    # directly after a layout reset but the current grid needs
+                    # more decoder capacity than the hardware provides.
+                    self.hwdec_preferences[active.stream_key] = "no"
+                    self.reload_event.set()
+                    switch_log(
+                        key, active.label, "hwdec-capacity-fallback",
+                        attempted=active.decode_strategy, retained="no",
+                        timeout_seconds=HWDEC_START_TIMEOUT_SECONDS,
+                    )
+                    continue
                 target = upcoming
                 preload = self.preloads.get(key)
                 if target is None:

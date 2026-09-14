@@ -358,6 +358,63 @@ def test_reconcile_limits_simultaneous_hwdec_upgrade_preloads(monkeypatch):
     assert "1:2" not in manager.preloads
 
 
+def test_stalled_hwdec_upgrade_keeps_visible_cpu_player(monkeypatch):
+    class FakeProcess:
+        def __init__(self):
+            self.terminated = False
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            self.terminated = True
+
+    manager = core.PlayerManager("unused.db")
+    now = 100.0
+    active = core.Player(
+        "cpu", FakeProcess(), "/tmp/cpu.sock", stream_key="1:107",
+        decode_strategy="auto", decode_device="cpu", hwdec="no",
+    )
+    preload = core.Player(
+        "gpu", FakeProcess(), "/tmp/gpu.sock", stream_key="1:107",
+        decode_strategy="vaapi-copy-force-profile", launched_at=now - 31,
+    )
+    manager.players["1:0"] = active
+    manager.preloads["1:0"] = preload
+    manager.hwdec_preferences["1:107"] = "vaapi-copy-force-profile"
+    monkeypatch.setattr(core.time, "monotonic", lambda: now)
+    monkeypatch.setattr(manager, "_ready", lambda _player: False)
+    monkeypatch.setattr(
+        manager, "desired",
+        lambda: {"1:0": (
+            core.StreamSpec(
+                "gpu", ["mpv"], "rtsp://test", stream_key="1:107",
+                decode_strategy="vaapi-copy-force-profile",
+            ),
+            None,
+        )},
+    )
+
+    manager.reconcile()
+
+    assert manager.players["1:0"] is active
+    assert "1:0" not in manager.preloads
+    assert preload.process.terminated
+    assert manager.hwdec_preferences["1:107"] == "auto"
+
+
+def test_stalled_remembered_hwdec_falls_back_to_explicit_cpu():
+    player = core.Player(
+        "gpu", SimpleNamespace(poll=lambda: None), "/tmp/gpu.sock",
+        decode_strategy="vaapi-copy-force-profile", launched_at=10,
+        decode_device="unknown",
+    )
+
+    assert core.PlayerManager._hwdec_start_timed_out(player, now=40)
+    player.decode_device = "gpu"
+    assert not core.PlayerManager._hwdec_start_timed_out(player, now=100)
+
+
 def test_transient_unknown_hwdec_preserves_confirmed_gpu(monkeypatch):
     manager = core.PlayerManager("unused.db")
     manager.hwdec_strategies = [

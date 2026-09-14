@@ -8,6 +8,18 @@ Dieses Changelog dokumentiert die Entwicklung von ZM Wall mit Funktionen, Betrie
 
 - Noch keine Änderungen.
 
+## 0.3.0-beta.8 – 2026-09-14
+
+### Behoben
+
+- Wenn eine alte GPU ihre praktische Grenze gleichzeitig nutzbarer Decoder erreicht, blieb ein erzwungener VAAPI-Player bislang unbegrenzt ohne stabilen Frame und wurde in der Weboberfläche nur mit `…` angezeigt.
+- Ein Hardware-Upgrade wird jetzt nach 30 Sekunden ohne bestätigte GPU-Decodierung kontrolliert beendet. Bei einem vorhandenen sichtbaren CPU-Player bleibt dieser ohne Bildunterbrechung aktiv; nach einem direkten Start mit gespeicherter GPU-Strategie wird gezielt ein Softwaredecoder gestartet.
+- Kapazitätsabhängige CPU-Rückfälle werden nicht dauerhaft gespeichert, damit der Stream bei einem kleineren Layout oder auf anderer Hardware erneut die GPU nutzen kann.
+
+### Tests
+
+- Abdeckung für den Timeout eines GPU-Upgrades, den Erhalt des sichtbaren CPU-Players und den direkten Software-Fallback nach einem blockierten gespeicherten Hardwarestart.
+
 ## 0.3.0-beta.7 – 2026-09-14
 
 ### Verbessert
