@@ -15,6 +15,7 @@ ZM Wall turns a lightweight Debian device into a network-managed RTSP video wall
 - multiple independent ZoneMinder connections
 - ZoneMinder multi-server mapping through `Monitor.ServerId` and `/api/servers.json`
 - automatic import of camera ID, name, status, and responsible server
+- live Ethernet/Wi-Fi connection status with network details in diagnostics
 - preferred hostnames with an automatic fallback IP for each ZoneMinder server
 - automatic API synchronization every five minutes and manual synchronization
 - automatic recovery of interrupted or temporarily unavailable streams
@@ -123,6 +124,8 @@ Decoder selection is performed per stream. ZM Wall tries safe automatic hardware
 On Intel systems, ZM Wall can use a confirmed VAAPI copy-back fallback with the FFmpeg hardware-profile check disabled when normal methods reject a stream despite driver support. The web diagnostics page tests this condition without changing the camera or stored decoder strategy.
 
 ## Operation and diagnostics
+
+The area below **Display active** shows the display device's current network paths live. When Ethernet and Wi-Fi are connected at the same time, both interfaces are listed. Stream diagnostics add the IPv4 address, gateway, link speed, default route, and—when available—Wi-Fi SSID, signal strength, and TX bitrate. Virtual Docker interfaces without a default route are hidden.
 
 Important paths:
 

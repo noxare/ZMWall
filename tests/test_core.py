@@ -313,6 +313,11 @@ def test_runtime_status_groups_actual_decoders_by_monitor(monkeypatch):
             "detect_decode_hardware",
             lambda: {"cpu": "Intel Core i5-5200U", "gpu": "Intel HD Graphics 5500"},
         )
+        monkeypatch.setattr(
+            core,
+            "detect_network_status",
+            lambda: {"state": "connected", "connections": [{"type": "ethernet", "interface": "enp1s0"}]},
+        )
         manager = core.PlayerManager(db_path)
         manager.players[f"{screen_id}:0"] = core.Player(
             "gpu", FakeProcess(), "/tmp/gpu.sock", label="4K-Kamera",
@@ -327,7 +332,9 @@ def test_runtime_status_groups_actual_decoders_by_monitor(monkeypatch):
             decode_device="unknown", stream_key="1:88",
         )
 
-        status = manager.runtime_status()["screens"][str(screen_id)]
+        runtime = manager.runtime_status()
+        status = runtime["screens"][str(screen_id)]
+        assert runtime["network"]["connections"][0]["interface"] == "enp1s0"
         assert status["state"] == "mixed"
         assert status["label"] == "CPU + GPU · Intel HD Graphics 5500"
         assert {stream["device"] for stream in status["streams"]} == {"cpu", "gpu", "unknown"}

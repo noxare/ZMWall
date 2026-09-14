@@ -8,6 +8,18 @@ Dieses Changelog dokumentiert die Entwicklung von ZM Wall mit Funktionen, Betrie
 
 - Noch keine Änderungen.
 
+## 0.3.0-beta.4 – 2026-09-14
+
+### Hinzugefügt
+
+- Der Status unter **Anzeige aktiv** zeigt live alle aktiven physischen LAN- und WLAN-Verbindungen einschließlich Interface-Namen an. Sind beide Wege verbunden, werden beide dargestellt.
+- Die Streamdiagnose enthält jetzt pro aktiver Verbindung Typ, Interface, IPv4-Adresse, Gateway, Linkgeschwindigkeit und Kennzeichnung der Standardroute. Bei WLAN werden zusätzlich – soweit vom System bereitgestellt – SSID, Signalstärke und TX-Bitrate ausgegeben.
+- Virtuelle Netze wie Docker-Bridges werden ohne eigene Standardroute nicht als aktive Geräteverbindung gemeldet.
+
+### Tests
+
+- Abdeckung für gleichzeitiges LAN/WLAN, das Ausblenden virtueller Interfaces und die formatierten Netzwerkdetails im Diagnosebericht.
+
 ## 0.3.0-beta.3 – 2026-09-14
 
 ### Dokumentation

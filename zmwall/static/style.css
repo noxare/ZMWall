@@ -23,6 +23,9 @@ header p, .section-head p, small { color: var(--muted); }
 .diagnostics-link { margin-top: 2px; color: var(--accent); font-size: 11px; text-decoration: none; }
 .diagnostics-link:hover { text-decoration: underline; }
 .live { color: var(--accent); font-size: 13px; }
+.live-status { display: grid; justify-items: end; gap: 1px; min-width: 130px; }
+.network-status { max-width: 260px; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.network-status.offline { color: var(--danger); }
 .header-actions { display: flex; align-items: center; gap: 14px; }
 .language-form label { display: flex; flex-direction: row; align-items: center; gap: 7px; }
 .language-form select { width: auto; min-width: 118px; padding: 7px 9px; font-size: 12px; }
@@ -127,7 +130,7 @@ summary { cursor: pointer; font-weight: 700; }
   .wide { grid-column: auto; }
   .grid { overflow-x: auto; }
   .screen-settings { grid-template-columns: repeat(3, minmax(90px, 1fr)); }
-  .live { display: none; }
+  .live-status { display: none; }
   .header-actions { gap: 8px; }
   header { align-items: flex-start; gap: 12px; }
   .header-actions { flex-wrap: wrap; justify-content: flex-end; }

@@ -15,6 +15,7 @@ ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigu
 - mehrere unabhängige ZoneMinder-Verbindungen
 - ZoneMinder-Multiserver: Zuordnung über `Monitor.ServerId` und `/api/servers.json`
 - automatische Übernahme von Kamera-ID, Name, Status und zuständigem Server
+- Live-Anzeige aktiver LAN- und WLAN-Verbindungen sowie Netzwerkdetails in der Diagnose
 - Hostname bevorzugt; automatische Fallback-IP pro ZoneMinder-Server
 - erneute API-Synchronisierung alle fünf Minuten und manuell per Schaltfläche
 - automatische Wiederherstellung abgebrochener oder vorübergehend nicht erreichbarer Streams
@@ -143,6 +144,8 @@ Ab Version `0.3.0-beta.2` werden bei einer gespeicherten Layoutänderung alle Pl
 Jede Grid-Position kann eine oder mehrere Kameras enthalten. Bei mehreren Kameras wechselt ZM Wall nach dem für das betreffende Display eingestellten Intervall zur nächsten Kamera und beginnt nach der letzten wieder von vorn. Der Mindestwert beträgt fünf Sekunden. Ein einzelner Stream bleibt dauerhaft sichtbar.
 
 ## Betrieb und Diagnose
+
+Unter **Anzeige aktiv** wird die aktuelle Netzwerkanbindung des Anzeigerechners live dargestellt. Bei gleichzeitig verbundenem LAN und WLAN erscheinen beide Interfaces. Die Streamdiagnose ergänzt IPv4-Adresse, Gateway, Linkgeschwindigkeit, Standardroute und – sofern verfügbar – WLAN-SSID, Signalstärke und TX-Bitrate. Virtuelle Docker-Interfaces ohne Standardroute werden ausgeblendet.
 
 Die wichtigsten Dateien:
 

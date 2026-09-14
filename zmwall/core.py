@@ -18,6 +18,8 @@ from urllib.parse import quote, urlparse
 import requests
 from Xlib import X, display as xdisplay, error as xerror
 
+from .network import detect_network_status
+
 
 PRELOAD_STABLE_SECONDS = 0.75
 PRELOAD_LEAD_SECONDS = 5.0
@@ -586,7 +588,11 @@ class PlayerManager:
             else:
                 screen["state"] = "cpu"
                 screen["label"] = f"CPU · {self.decode_hardware['cpu']}"
-        return {"hardware": dict(self.decode_hardware), "screens": screens}
+        return {
+            "hardware": dict(self.decode_hardware),
+            "network": detect_network_status(),
+            "screens": screens,
+        }
 
     def request_reload(self, reset_layout: bool = False) -> None:
         """Wake the manager and optionally discard every old grid surface.

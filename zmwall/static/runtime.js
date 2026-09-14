@@ -1,6 +1,7 @@
 (() => {
   const streamBadges = [...document.querySelectorAll("[data-decoder-camera]")];
-  if (!streamBadges.length) return;
+  const networkStatus = document.getElementById("network-status");
+  if (!streamBadges.length && !networkStatus) return;
   const labels = document.body.dataset;
   const format = (template, values) => Object.entries(values).reduce(
     (text, [name, value]) => text.replace(`{${name}}`, value), template,
@@ -14,6 +15,20 @@
       });
       if (!response.ok) return;
       const payload = await response.json();
+      if (networkStatus) {
+        const connections = payload.network?.connections || [];
+        networkStatus.textContent = connections.length
+          ? connections.map((connection) => {
+            const type = connection.type === "wifi" ? labels.i18nNetworkWifi : labels.i18nNetworkLan;
+            return `${type} (${connection.interface})`;
+          }).join(" + ")
+          : labels.i18nNetworkOffline;
+        networkStatus.className = `network-status ${connections.length ? "connected" : "offline"}`;
+        networkStatus.title = connections.map((connection) => {
+          const details = [connection.ipv4, connection.gateway ? `Gateway ${connection.gateway}` : "", connection.ssid || ""];
+          return `${connection.interface}: ${details.filter(Boolean).join(" · ")}`;
+        }).join("\n");
+      }
       streamBadges.forEach((badge) => {
         badge.textContent = labels.i18nWaiting;
         badge.className = "stream-decoder waiting";
