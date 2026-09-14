@@ -90,7 +90,14 @@ def hwdec_option(strategy: str) -> str:
 def hwdec_arguments(strategy: str) -> list[str]:
     arguments = [f"--hwdec={hwdec_option(strategy)}"]
     if strategy == "vaapi-copy-force-profile":
-        arguments.append("--vd-lavc-check-hw-profile=no")
+        # This is the compatibility mode proven by stream diagnostics. The
+        # affected cameras report contradictory H.264 profile/reference data;
+        # allowing mpv's normal fallback would silently return to CPU decoding
+        # after VAAPI was initialized successfully.
+        arguments.extend([
+            "--vd-lavc-check-hw-profile=no",
+            "--hwdec-software-fallback=no",
+        ])
     return arguments
 
 
@@ -709,7 +716,7 @@ class PlayerManager:
                             f"--screen-name={screen['output_name']}",
                             "--keepaspect=no", "--keepaspect-window=no", "--panscan=0",
                             "--video-zoom=0", "--no-osc", "--cursor-autohide=always",
-                            *hwdec_arguments(decode_strategy), "--profile=low-latency",
+                            "--profile=low-latency", *hwdec_arguments(decode_strategy),
                             "--demuxer-lavf-o=rtsp_transport=tcp,rw_timeout=15000000",
                             f"--geometry={geometry}", "--really-quiet", "--playlist=-",
                         ]

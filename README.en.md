@@ -4,7 +4,7 @@
 
 [Detailed changelog](CHANGELOG.en.md)
 
-Current development version: **0.3.0-beta.3**
+Current development version: **0.3.0-beta.5**
 
 ZM Wall turns a lightweight Debian device into a network-managed RTSP video wall for ZoneMinder. Each physical display can use its own grid and camera assignment. ZM Wall uses ZoneMinder's integrated RTSP restream feature: it does not open another direct connection to each camera. Instead, the streams already provided by ZoneMinder are rendered with `mpv`, while the web interface is used for administration.
 

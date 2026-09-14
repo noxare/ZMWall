@@ -8,6 +8,17 @@ This changelog documents ZM Wall's features, operational flows, technical decisi
 
 - No changes yet.
 
+## 0.3.0-beta.5 – 2026-09-14
+
+### Fixed
+
+- Stream diagnostics could render affected Intel streams through `vaapi-copy`, while the regular player silently returned to CPU decoding after individual malformed reference pictures. The confirmed VAAPI compatibility strategy now disables that automatic software fallback as well.
+- Affected H.264 streams with contradictory profile metadata therefore remain on the GPU during normal wall operation. Regular streams and other hardware retain their existing safe fallback chain.
+
+### Tests
+
+- Regression tests ensure that the compatibility options use their final effective order and that this targeted mode no longer permits a silent CPU fallback.
+
 ## 0.3.0-beta.4 – 2026-09-14
 
 ### Added

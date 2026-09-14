@@ -292,8 +292,48 @@ def test_forced_profile_strategy_uses_vaapi_copy():
     assert core.hwdec_option("vaapi-copy-force-profile") == "vaapi-copy"
     assert core.hwdec_arguments("vaapi-copy-force-profile") == [
         "--hwdec=vaapi-copy", "--vd-lavc-check-hw-profile=no",
+        "--hwdec-software-fallback=no",
     ]
     assert core.hwdec_arguments("auto") == ["--hwdec=auto"]
+
+
+def test_runtime_applies_forced_profile_override_after_mpv_profile(monkeypatch):
+    with tempfile.TemporaryDirectory() as directory:
+        db_path = str(Path(directory) / "forced-profile.db")
+        init_db(db_path)
+        with connect(db_path) as db:
+            site_id = db.execute(
+                "INSERT INTO sites(name,base_url,username,password) VALUES(?,?,?,?)",
+                ("Test", "https://zm/zm", "user", "password"),
+            ).lastrowid
+            db.execute(
+                """INSERT INTO cameras(camera_key,site_id,zm_id,name,rtsp_host,
+                                          rtsp_enabled,rtsp_stream_name)
+                   VALUES(?,?,?,?,?,?,?)""",
+                ("1:107", site_id, "107", "Culinario", "10.0.0.2", 1, "107"),
+            )
+            screen_id = db.execute(
+                "INSERT INTO screens(output_name,rows,cols) VALUES('HDMI-1',1,1)"
+            ).lastrowid
+            db.execute(
+                """INSERT INTO tile_cameras(screen_id,position,camera_key,sort_order)
+                   VALUES(?,?,?,?)""",
+                (screen_id, 0, "1:107", 0),
+            )
+
+        monkeypatch.setattr(
+            core,
+            "detect_outputs",
+            lambda: [{"name": "HDMI-1", "width": 1920, "height": 1080, "x": 0, "y": 0}],
+        )
+        manager = core.PlayerManager(db_path)
+        manager.hwdec_preferences["1:107"] = "vaapi-copy-force-profile"
+        spec, _ = manager.desired()[f"{screen_id}:0"]
+
+        assert spec.command.index("--profile=low-latency") < spec.command.index(
+            "--vd-lavc-check-hw-profile=no"
+        )
+        assert "--hwdec-software-fallback=no" in spec.command
 
 
 def test_runtime_status_groups_actual_decoders_by_monitor(monkeypatch):
