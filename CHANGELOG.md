@@ -8,6 +8,17 @@ Dieses Changelog dokumentiert die Entwicklung von ZM Wall mit Funktionen, Betrie
 
 - Noch keine Änderungen.
 
+## 0.3.0-beta.10 – 2026-09-14
+
+### Behoben
+
+- Die Sammeldiagnose konnte einen Stream fälschlich als GPU-Auflösungsgrenze markieren, wenn mpv zunächst einen ungeeigneten Hardwarepfad ablehnte und anschließend einen anderen Hardwaredecoder erfolgreich verwendete.
+- Ein später bestätigter GPU-Erfolg hat nun Vorrang vor einer früheren Bildgrößenablehnung. Rot wird nur noch angezeigt, wenn die Größenablehnung das letzte maßgebliche Hardwareergebnis bleibt.
+
+### Tests
+
+- Regressionstest für eine passende 720×576-Auflösung mit zunächst abgelehntem und anschließend erfolgreichem Hardwaredecoder.
+
 ## 0.3.0-beta.9 – 2026-09-14
 
 ### Hinzugefügt

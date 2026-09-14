@@ -1,3 +1,3 @@
 """ZoneMinder RTSP video wall."""
 
-__version__ = "0.3.0-beta.9"
+__version__ = "0.3.0-beta.10"

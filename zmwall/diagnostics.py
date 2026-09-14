@@ -107,8 +107,17 @@ def probe_stream_summary(row: Any) -> dict[str, Any]:
     codec = _first_match((r"Selected decoder:\s*([^\s]+)",), output)
     profile = _first_match((r"Codec profile:\s*([^\r\n(]+)",), output)
     fps = _first_match((r"Container reported FPS:\s*([0-9.]+)",), output)
-    explicit_size_limit = "Hardware does not support image size" in output
-    hardware_used = "Using hardware decoding" in output
+    # mpv may reject one auto-selected hardware path and successfully use a
+    # later one. Evaluate the last decisive size-limit/success event instead
+    # of letting an earlier backend rejection override a later GPU success.
+    size_limit_position = output.rfind("Hardware does not support image size")
+    hardware_used_position = output.rfind("Using hardware decoding")
+    if hardware_used_position > size_limit_position:
+        gpu_compatible = 1
+    elif size_limit_position >= 0:
+        gpu_compatible = 0
+    else:
+        gpu_compatible = None
     result: dict[str, Any] = {
         "camera_key": row["camera_key"],
         "actual_width": int(size.group(1)) if size else None,
@@ -118,7 +127,7 @@ def probe_stream_summary(row: Any) -> dict[str, Any]:
         "fps": fps.group(1) if fps else None,
         # Only report a definite incompatibility for the explicit decoder-size
         # rejection. Other failures can be transient or profile-specific.
-        "gpu_compatible": 0 if explicit_size_limit else (1 if hardware_used else None),
+        "gpu_compatible": gpu_compatible,
         "status": "ok" if size else ("timeout" if timed_out else "error"),
         "error": None if size else ("timeout" if timed_out else "no_metadata"),
     }

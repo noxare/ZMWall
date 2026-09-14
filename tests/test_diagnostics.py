@@ -51,3 +51,28 @@ def test_summary_probe_detects_resolution_and_explicit_gpu_size_limit(monkeypatc
     assert result["fps"] == "15.000000"
     assert result["gpu_compatible"] == 0
     assert result["status"] == "ok"
+
+
+def test_summary_probe_prefers_later_hardware_success_over_size_rejection(monkeypatch):
+    class Process:
+        returncode = 0
+
+        def communicate(self, _input=None, timeout=None):
+            return (
+                "[ffmpeg/video] h264: Hardware does not support image size 720x576.\n"
+                "[vd] Attempting next decoding method after failure.\n"
+                "Using hardware decoding (vaapi-copy).\n"
+                "[vd] Decoder format: 720x576 nv12\n",
+                None,
+            )
+
+    monkeypatch.setattr(diagnostics, "render_rtsp", lambda row, _camera: "rtsp://secret")
+    monkeypatch.setattr(diagnostics.subprocess, "Popen", lambda *args, **kwargs: Process())
+    result = probe_stream_summary({
+        "camera_key": "1:64", "username": "admin", "password": "secret",
+    })
+    assert result["actual_width"] == 720
+    assert result["actual_height"] == 576
+    assert result["gpu_compatible"] == 1
+    assert result["status"] == "ok"
+

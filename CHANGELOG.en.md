@@ -8,6 +8,17 @@ This changelog documents ZM Wall's features, operational flows, technical decisi
 
 - No changes yet.
 
+## 0.3.0-beta.10 – 2026-09-14
+
+### Fixed
+
+- The all-camera diagnostic could incorrectly report a GPU resolution limit when mpv first rejected one unsuitable hardware path and subsequently used another hardware decoder successfully.
+- A later confirmed GPU success now takes precedence over an earlier image-size rejection. Red is shown only when the size rejection remains the final relevant hardware result.
+
+### Tests
+
+- Regression coverage for a matching 720×576 stream whose first hardware path is rejected before a later hardware decoder succeeds.
+
 ## 0.3.0-beta.9 – 2026-09-14
 
 ### Added
