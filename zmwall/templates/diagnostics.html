@@ -7,7 +7,9 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script defer src="{{ url_for('static', filename='diagnostics.js') }}"></script>
 </head>
-<body data-i18n-diagnostics-running="{{ t('diagnostics_running') }}" data-i18n-copied="{{ t('copied') }}">
+<body data-i18n-diagnostics-running="{{ t('diagnostics_running') }}" data-i18n-copied="{{ t('copied') }}"
+      data-i18n-batch-running="{{ t('batch_running', completed='{completed}', total='{total}') }}"
+      data-i18n-batch-complete="{{ t('batch_complete') }}" data-i18n-batch-failed="{{ t('batch_failed') }}">
 <header>
   <div class="brand"><h1>{{ t('diagnostics_title') }}</h1><p>{{ version }}</p><a class="diagnostics-link" href="{{ url_for('index') }}">{{ t('back_configuration') }}</a></div>
   <form method="post" action="{{ url_for('set_language') }}" class="language-form">
@@ -35,6 +37,53 @@
     </form>
     <p class="diagnostics-running" data-diagnostics-running hidden>{{ t('checking_drivers') }}</p>
     {% if diagnostic_error %}<div class="flash error">{{ diagnostic_error }}</div>{% endif %}
+  </section>
+
+  <section class="panel diagnostics-panel">
+    <div class="card-head">
+      <div><h2>{{ t('check_all_streams') }}</h2><p>{{ t('batch_diagnostics_help') }}</p></div>
+      <div class="diagnostic-actions">
+        <button type="button" class="secondary" data-download-batch>{{ t('download_summary') }}</button>
+        <button type="button" data-batch-start>{{ t('start_batch_diagnostics') }}</button>
+      </div>
+    </div>
+    <div class="batch-progress" data-batch-progress hidden>
+      <progress value="0" max="1" data-batch-progress-bar></progress>
+      <span data-batch-progress-label></span>
+    </div>
+    <div class="diagnostic-table-wrap">
+      <table class="diagnostic-table" data-batch-table>
+        <thead><tr>
+          <th>{{ t('camera') }}</th><th>{{ t('configured_resolution') }}</th>
+          <th>{{ t('actual_resolution') }}</th><th>{{ t('stream_format') }}</th>
+          <th>{{ t('assessment') }}</th><th>{{ t('last_checked') }}</th>
+        </tr></thead>
+        <tbody>
+        {% for camera in batch_rows %}
+          <tr>
+            <td><strong>{{ camera.name }}</strong><small>ID {{ camera.zm_id }} · {{ camera.server_name or t('local_server') }}</small></td>
+            <td>{{ camera.configured_width ~ '×' ~ camera.configured_height if camera.configured_width and camera.configured_height else '—' }}</td>
+            <td>{{ camera.resolution_label }}</td>
+            <td>{{ ((camera.codec or '—') ~ (' · ' ~ camera.profile if camera.profile else '') ~ (' · ' ~ camera.fps ~ ' fps' if camera.fps else '')) }}</td>
+            <td><span class="resolution-state {{ camera.resolution_class }}">
+              {% if camera.resolution_class == 'match' %}{{ t('resolution_match') }}
+              {% elif camera.resolution_class == 'mismatch' %}{{ t('resolution_mismatch') }}
+              {% elif camera.resolution_class == 'gpu-limit' %}{{ t('resolution_gpu_limit') }}
+              {% elif camera.resolution_class == 'error' %}{{ t('resolution_error') }}
+              {% else %}{{ t('resolution_unchecked') }}{% endif %}
+            </span></td>
+            <td>{{ camera.checked_at or '—' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="resolution-legend batch-legend" aria-label="{{ t('resolution_legend') }}">
+      <span class="match">{{ t('resolution_match') }}</span>
+      <span class="mismatch">{{ t('resolution_mismatch') }}</span>
+      <span class="gpu-limit">{{ t('resolution_gpu_limit') }}</span>
+      <span class="unchecked">{{ t('resolution_unchecked') }}</span>
+    </div>
   </section>
 
   {% if result %}

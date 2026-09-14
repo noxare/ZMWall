@@ -4,7 +4,7 @@
 
 [Detaillierter Änderungsverlauf](CHANGELOG.md)
 
-Aktueller Entwicklungsstand: **0.3.0-beta.8**
+Aktueller Entwicklungsstand: **0.3.0-beta.9**
 
 ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigurierbare RTSP-Videowand für ZoneMinder. Jeder physische Monitor kann ein eigenes Raster und eine eigene Kamerabelegung erhalten. ZM Wall verwendet die integrierte RTSP-Restream-Funktion von ZoneMinder: Die Streams werden nicht zusätzlich direkt von den Kameras abgerufen, sondern von ZoneMinder bereitgestellt und mit `mpv` wiedergegeben. Die Weboberfläche dient zur Verwaltung.
 
@@ -28,6 +28,8 @@ ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigu
 - nach erfolgreicher ZoneMinder-Erkennung Anmeldung direkt gegen ZoneMinder
 - Nutzung der integrierten ZoneMinder-RTSP-Restreams mit `mpv`, Hardware-Decoding und TCP-Transport
 - Weboberfläche auf Deutsch und Englisch; automatische Auswahl anhand der Browser-/Systemsprache und jederzeit manuell umschaltbar
+- Sammeldiagnose aller RTSP-Kameras mit Vergleich von ZoneMinder- und tatsächlicher Streamauflösung
+- dezente, farbcodierte Auflösungsanzeige pro Kamera in der Grid-Konfiguration
 
 ## Voraussetzungen
 
@@ -146,6 +148,8 @@ Jede Grid-Position kann eine oder mehrere Kameras enthalten. Bei mehreren Kamera
 ## Betrieb und Diagnose
 
 Unter **Anzeige aktiv** wird die aktuelle Netzwerkanbindung des Anzeigerechners live dargestellt. Bei gleichzeitig verbundenem LAN und WLAN erscheinen beide Interfaces. Die Streamdiagnose ergänzt IPv4-Adresse, Gateway, Linkgeschwindigkeit, Standardroute und – sofern verfügbar – WLAN-SSID, Signalstärke und TX-Bitrate. Virtuelle Docker-Interfaces ohne Standardroute werden ausgeblendet.
+
+Auf der Diagnoseseite kann neben einer detaillierten Einzelprüfung auch **Alle Kameras prüfen** gestartet werden. Diese Sammeldiagnose untersucht mit höchstens zwei parallelen Verbindungen die tatsächlich von ZoneMinder gelieferten Restreams. Sie vergleicht deren Auflösung mit der in ZoneMinder gespeicherten Monitorauflösung und zeigt das Ergebnis anschließend als farbcodiertes Badge an jeder Kamera im Grid. Die Übersicht lässt sich ohne RTSP-Adressen oder Zugangsdaten herunterladen.
 
 Die wichtigsten Dateien:
 

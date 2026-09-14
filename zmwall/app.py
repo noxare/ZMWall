@@ -13,7 +13,7 @@ from flask import Flask, Response, flash, g, jsonify, redirect, render_template,
 
 from . import __version__
 from .core import PlayerManager, api_url, connect, detect_outputs, init_db, parse_camera_keys, sync_site
-from .diagnostics import diagnose_camera
+from .diagnostics import diagnose_all_cameras, diagnose_camera
 from .i18n import SUPPORTED_LANGUAGES, resolve_language, translate
 
 
@@ -31,6 +31,8 @@ UPDATE_ORIGINS = {
 }
 update_lock = threading.Lock()
 diagnostic_lock = threading.Lock()
+batch_state_lock = threading.Lock()
+batch_state = {"state": "idle", "completed": 0, "total": 0, "camera_key": None}
 update_state = {"state": "checking", "message_key": "update_searching"}
 
 
@@ -42,6 +44,51 @@ def current_language() -> str:
 
 def t(key: str, **values: object) -> str:
     return translate(current_language(), key, **values)
+
+
+def _diagnostic_class(row: object) -> str:
+    if not row["diagnostic_status"]:
+        return "unchecked"
+    if row["diagnostic_status"] != "ok":
+        return "error"
+    if row["gpu_compatible"] == 0:
+        return "gpu-limit"
+    configured = (row["configured_width"], row["configured_height"])
+    actual = (row["actual_width"], row["actual_height"])
+    if all(configured) and configured == actual:
+        return "match"
+    if all(configured) and all(actual):
+        return "mismatch"
+    return "unchecked"
+
+
+def _camera_view(row: object) -> dict[str, object]:
+    camera = dict(row)
+    camera["resolution_class"] = _diagnostic_class(row)
+    camera["resolution_label"] = (
+        f"{row['actual_width']}×{row['actual_height']}"
+        if row["actual_width"] and row["actual_height"] else "—"
+    )
+    if row["diagnostic_status"] and row["diagnostic_status"] != "ok":
+        camera["resolution_title"] = t("resolution_error")
+    elif row["actual_width"] and row["actual_height"]:
+        actual = camera["resolution_label"]
+        configured = (
+            f"{row['configured_width']}×{row['configured_height']}"
+            if row["configured_width"] and row["configured_height"] else t("unknown")
+        )
+        camera["resolution_title"] = t(
+            "resolution_details", actual=actual, configured=configured,
+        )
+    else:
+        camera["resolution_title"] = t("resolution_not_checked")
+    return camera
+
+
+CAMERA_DIAGNOSTIC_JOIN = """
+LEFT JOIN camera_stream_config csc ON csc.camera_key=c.camera_key
+LEFT JOIN stream_diagnostics sd ON sd.camera_key=c.camera_key
+"""
 
 
 def localized_update_state() -> dict[str, str]:
@@ -195,20 +242,30 @@ def index():
         sites = db.execute("SELECT * FROM sites ORDER BY name").fetchall()
         zm_servers = db.execute("SELECT * FROM zm_servers ORDER BY site_id,name").fetchall()
         cameras = db.execute("SELECT * FROM cameras ORDER BY name").fetchall()
-        selectable_cameras = db.execute(
-            "SELECT * FROM cameras WHERE rtsp_enabled=1 ORDER BY name"
-        ).fetchall()
+        selectable_cameras = [
+            _camera_view(row) for row in db.execute(
+                f"""SELECT c.*,csc.configured_width,csc.configured_height,
+                           sd.actual_width,sd.actual_height,sd.gpu_compatible,
+                           sd.status AS diagnostic_status,sd.checked_at
+                    FROM cameras c {CAMERA_DIAGNOSTIC_JOIN}
+                    WHERE c.rtsp_enabled=1 ORDER BY c.name"""
+            ).fetchall()
+        ]
         screens = db.execute("SELECT * FROM screens ORDER BY output_name").fetchall()
         assignment_rows = db.execute(
-            """SELECT tc.screen_id,tc.position,tc.camera_key,tc.sort_order,c.name,c.server_name
+            f"""SELECT tc.screen_id,tc.position,tc.camera_key,tc.sort_order,c.name,c.server_name,
+                       csc.configured_width,csc.configured_height,
+                       sd.actual_width,sd.actual_height,sd.gpu_compatible,
+                       sd.status AS diagnostic_status,sd.checked_at
                FROM tile_cameras tc JOIN cameras c ON c.camera_key=tc.camera_key
+               {CAMERA_DIAGNOSTIC_JOIN}
                WHERE c.rtsp_enabled=1 AND c.enabled=1
                ORDER BY tc.screen_id,tc.position,tc.sort_order"""
         ).fetchall()
         assignments = {}
         assigned_camera_keys = set()
         for row in assignment_rows:
-            assignments.setdefault(f"{row['screen_id']}:{row['position']}", []).append(row)
+            assignments.setdefault(f"{row['screen_id']}:{row['position']}", []).append(_camera_view(row))
             assigned_camera_keys.add(row["camera_key"])
         available_cameras = [camera for camera in selectable_cameras if camera["camera_key"] not in assigned_camera_keys]
     runtime_status = manager.runtime_status()
@@ -255,6 +312,16 @@ def diagnostics():
             """SELECT camera_key,zm_id,name,server_name FROM cameras
                WHERE enabled=1 AND rtsp_enabled=1 ORDER BY name"""
         ).fetchall()
+        batch_rows = db.execute(
+            """SELECT c.camera_key,c.zm_id,c.name,c.server_name,
+                      csc.configured_width,csc.configured_height,
+                      sd.actual_width,sd.actual_height,sd.codec,sd.profile,sd.fps,
+                      sd.gpu_compatible,sd.status AS diagnostic_status,sd.error,sd.checked_at
+               FROM cameras c
+               LEFT JOIN camera_stream_config csc ON csc.camera_key=c.camera_key
+               LEFT JOIN stream_diagnostics sd ON sd.camera_key=c.camera_key
+               WHERE c.enabled=1 AND c.rtsp_enabled=1 ORDER BY c.name"""
+        ).fetchall()
     selected = request.form.get("camera_key", "")
     result = None
     diagnostic_error = None
@@ -274,7 +341,54 @@ def diagnostics():
     return render_template(
         "diagnostics.html", cameras=diagnostic_cameras, selected=selected,
         result=result, diagnostic_error=diagnostic_error, version=__version__,
+        batch_rows=[_camera_view(row) for row in batch_rows],
     )
+
+
+def _run_batch_diagnostics() -> None:
+    def progress(completed: int, total: int, result: dict[str, object]) -> None:
+        with batch_state_lock:
+            batch_state.update({
+                "state": "running", "completed": completed, "total": total,
+                "camera_key": result.get("camera_key"),
+            })
+
+    try:
+        diagnose_all_cameras(DB_PATH, progress=progress, max_workers=2)
+        with batch_state_lock:
+            batch_state.update({"state": "completed", "camera_key": None})
+    except Exception as error:
+        with batch_state_lock:
+            batch_state.update({
+                "state": "error", "error": type(error).__name__, "camera_key": None,
+            })
+    finally:
+        diagnostic_lock.release()
+
+
+@app.post("/diagnostics/all/start")
+@login_required
+def start_all_diagnostics():
+    if not diagnostic_lock.acquire(blocking=False):
+        return jsonify({"state": "busy", "message": t("diagnostic_busy")}), 409
+    with connect(DB_PATH) as db:
+        total = db.execute(
+            "SELECT count(*) FROM cameras WHERE enabled=1 AND rtsp_enabled=1"
+        ).fetchone()[0]
+    with batch_state_lock:
+        batch_state.clear()
+        batch_state.update({
+            "state": "running", "completed": 0, "total": total, "camera_key": None,
+        })
+    threading.Thread(target=_run_batch_diagnostics, daemon=True).start()
+    return jsonify(dict(batch_state)), 202
+
+
+@app.get("/diagnostics/all/status")
+@login_required
+def all_diagnostics_status():
+    with batch_state_lock:
+        return jsonify(dict(batch_state))
 
 
 @app.get("/updates/status")

@@ -8,6 +8,25 @@ This changelog documents ZM Wall's features, operational flows, technical decisi
 
 - No changes yet.
 
+## 0.3.0-beta.9 – 2026-09-14
+
+### Added
+
+- The diagnostics page now provides an asynchronous all-camera diagnostic in addition to the detailed single-stream test.
+- At most two short, read-only stream probes run concurrently. Progress and persisted results remain visible in the web interface, and the summary can be downloaded as a TSV file.
+- The all-camera diagnostic compares the ZoneMinder monitor resolution with the resolution actually found in the restream and records codec, profile, and frame rate.
+- Every camera in the grid configuration receives a subtle resolution badge. Green means the resolutions match, yellow indicates a mismatch, red identifies an explicit GPU image-size rejection, and gray marks an unchecked stream.
+- A compact legend is shown next to each display's hardware details.
+
+### Flow and diagnostics
+
+- Stream metadata already observed by the regular player is cached without opening another connection. The all-camera diagnostic can then refresh the complete inventory on demand.
+- RTSP addresses and credentials are never included in persisted results or the downloadable summary.
+
+### Tests
+
+- Coverage for the low-impact single-frame probe, explicit GPU resolution-limit detection, and resolution data rendering on both the configuration and diagnostics pages.
+
 ## 0.3.0-beta.8 – 2026-09-14
 
 ### Fixed

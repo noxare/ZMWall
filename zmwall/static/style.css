@@ -42,7 +42,8 @@ section { margin-bottom: 42px; }
 .card-head, .actions { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 16px; }
 .status { color: var(--accent); font-size: 12px; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status.bad, .danger { color: var(--danger); }
-.monitor-hardware { margin-left: auto; display: grid; gap: 2px; min-width: 0; color: var(--muted); font-size: 10px; text-align: right; }
+.monitor-meta { margin-left: auto; display: grid; justify-items: end; gap: 5px; min-width: 0; }
+.monitor-hardware { display: grid; gap: 2px; min-width: 0; color: var(--muted); font-size: 10px; text-align: right; }
 .monitor-hardware span { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .monitor-hardware b { margin-right: 3px; color: var(--text); }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
@@ -100,6 +101,17 @@ summary { cursor: pointer; font-weight: 700; }
 .stream-decoder.cpu { border-color: #806a28; background: #29230f; color: #f2c94c; }
 .stream-decoder.unknown, .stream-decoder.waiting { color: var(--muted); font-weight: 500; }
 .stream-decoder.preloading { border-style: dashed; }
+.stream-badges { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.stream-resolution { flex: 0 0 auto; padding: 2px 6px; border: 1px solid #3b4c59; border-radius: 999px; color: var(--muted); font-size: 10px; font-weight: 600; white-space: nowrap; }
+.stream-resolution.match, .resolution-state.match { border-color: #1b755e; background: #10251f; color: #9cf3d8; }
+.stream-resolution.mismatch, .resolution-state.mismatch { border-color: #806a28; background: #29230f; color: #f2c94c; }
+.stream-resolution.gpu-limit, .resolution-state.gpu-limit,
+.stream-resolution.error, .resolution-state.error { border-color: #8b353a; background: #35181b; color: #ff9b9b; }
+.resolution-legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 3px 9px; color: var(--muted); font-size: 9px; }
+.resolution-legend span::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 4px; border-radius: 50%; background: #627583; }
+.resolution-legend .match::before { background: #27d39f; }
+.resolution-legend .mismatch::before { background: #f2c94c; }
+.resolution-legend .gpu-limit::before { background: var(--danger); }
 .camera-pool .camera-chip .unassign { display: none; }
 .save-layout { justify-self: end; position: sticky; bottom: 14px; box-shadow: 0 5px 24px #000a; }
 
@@ -118,6 +130,17 @@ summary { cursor: pointer; font-weight: 700; }
 .diagnostics-running { color: #f2c94c !important; }
 .diagnostic-result pre { max-height: 65vh; margin: 0; padding: 14px; overflow: auto; border: 1px solid var(--line); border-radius: 7px; background: #080c10; color: #d7e1e8; font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .diagnostic-actions { display: flex; gap: 8px; }
+.batch-progress { display: grid; grid-template-columns: minmax(180px, 1fr) auto; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; }
+.batch-progress progress { width: 100%; accent-color: var(--accent); }
+.diagnostic-table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 7px; }
+.diagnostic-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.diagnostic-table th, .diagnostic-table td { padding: 9px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+.diagnostic-table th { position: sticky; top: 0; background: #17212a; color: var(--muted); font-size: 10px; text-transform: uppercase; }
+.diagnostic-table tr:last-child td { border-bottom: 0; }
+.diagnostic-table td:first-child { min-width: 220px; white-space: normal; }
+.diagnostic-table td:first-child small { display: block; }
+.resolution-state { display: inline-block; padding: 2px 7px; border: 1px solid #3b4c59; border-radius: 999px; color: var(--muted); font-size: 10px; }
+.batch-legend { justify-content: flex-start; font-size: 10px; }
 
 @media (max-width: 980px) {
   .layout-workspace { grid-template-columns: 1fr; }

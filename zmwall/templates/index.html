@@ -77,6 +77,7 @@
             <div class="camera-chip" draggable="true" tabindex="0"
                  data-camera-key="{{ camera.camera_key }}" data-camera-search="{{ (camera.name ~ ' ' ~ (camera.server_name or '') ~ ' ' ~ camera.zm_id)|lower }}">
               <span><strong>{{ camera.name }}</strong><small>{{ camera.server_name or t('local_server') }} · ID {{ camera.zm_id }}</small></span>
+              <span class="stream-resolution {{ camera.resolution_class }}" title="{{ camera.resolution_title }}">{{ camera.resolution_label }}</span>
               <button type="button" class="unassign" title="{{ t('remove_assignment') }}" aria-label="{{ camera.name }} {{ t('put_back') }}">×</button>
             </div>
           {% else %}
@@ -93,9 +94,17 @@
           <article class="card screen-card">
             <div class="card-head">
               <div><h3>{{ screen.output_name }}</h3><small>{{ screen.rows }} × {{ screen.cols }}</small></div>
-              <div class="monitor-hardware" title="{{ t('detected_hardware') }}">
-                <span><b>CPU</b> {{ runtime_hardware.cpu }}</span>
-                <span><b>GPU</b> {{ runtime_hardware.gpu }}</span>
+              <div class="monitor-meta">
+                <div class="monitor-hardware" title="{{ t('detected_hardware') }}">
+                  <span><b>CPU</b> {{ runtime_hardware.cpu }}</span>
+                  <span><b>GPU</b> {{ runtime_hardware.gpu }}</span>
+                </div>
+                <div class="resolution-legend" aria-label="{{ t('resolution_legend') }}">
+                  <span class="match">{{ t('resolution_match') }}</span>
+                  <span class="mismatch">{{ t('resolution_mismatch') }}</span>
+                  <span class="gpu-limit">{{ t('resolution_gpu_limit') }}</span>
+                  <span class="unchecked">{{ t('resolution_unchecked') }}</span>
+                </div>
               </div>
               <button type="submit" class="link danger" formaction="{{ url_for('delete_screen', screen_id=screen.id) }}"
                       formnovalidate onclick='return confirm({{ t("remove_display_confirm")|tojson }})'>{{ t('remove_display') }}</button>
@@ -117,7 +126,10 @@
                       <div class="camera-chip" draggable="true" tabindex="0"
                            data-camera-key="{{ camera.camera_key }}" data-camera-search="{{ (camera.name ~ ' ' ~ (camera.server_name or ''))|lower }}">
                         <span><strong>{{ camera.name }}</strong><small>{{ camera.server_name or t('local_server') }}</small></span>
-                        <span class="stream-decoder waiting" data-decoder-camera="{{ camera.camera_key }}" title="{{ t('camera_inactive') }}">{{ t('waiting') }}</span>
+                        <span class="stream-badges">
+                          <span class="stream-decoder waiting" data-decoder-camera="{{ camera.camera_key }}" title="{{ t('camera_inactive') }}">{{ t('waiting') }}</span>
+                          <span class="stream-resolution {{ camera.resolution_class }}" title="{{ camera.resolution_title }}">{{ camera.resolution_label }}</span>
+                        </span>
                         <button type="button" class="unassign" title="{{ t('remove_assignment') }}" aria-label="{{ camera.name }} {{ t('put_back') }}">×</button>
                       </div>
                     {% endfor %}

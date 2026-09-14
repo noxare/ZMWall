@@ -1,4 +1,5 @@
-from zmwall.diagnostics import probe_command, redact
+from zmwall import diagnostics
+from zmwall.diagnostics import probe_command, probe_stream_summary, redact, summary_probe_command
 
 
 def test_diagnostic_output_redacts_url_and_credentials():
@@ -15,3 +16,38 @@ def test_forced_profile_probe_only_disables_profile_check_for_diagnostic():
     assert "--vd-lavc-check-hw-profile=no" not in probe_command()
     assert "--vd-lavc-check-hw-profile=no" in probe_command(ignore_profile_check=True)
     assert "--hwdec-software-fallback=no" in probe_command(ignore_profile_check=True)
+
+
+def test_summary_probe_reads_one_frame_and_keeps_software_fallback():
+    command = summary_probe_command()
+    assert "--frames=1" in command
+    assert "--hwdec=auto-copy" in command
+    assert "--hwdec-software-fallback=yes" in command
+
+
+def test_summary_probe_detects_resolution_and_explicit_gpu_size_limit(monkeypatch):
+    class Process:
+        returncode = 0
+
+        def communicate(self, _input=None, timeout=None):
+            return (
+                "[vd] Selected decoder: h264 - H.264\n"
+                "[vd] Codec profile: High (0x64)\n"
+                "[vd] Container reported FPS: 15.000000\n"
+                "[ffmpeg/video] h264: Hardware does not support image size 3840x2160.\n"
+                "[ffmpeg/video] h264: Reinit context to 3840x2160, pix_fmt: yuvj420p\n",
+                None,
+            )
+
+    monkeypatch.setattr(diagnostics, "render_rtsp", lambda row, _camera: "rtsp://secret")
+    monkeypatch.setattr(diagnostics.subprocess, "Popen", lambda *args, **kwargs: Process())
+    result = probe_stream_summary({
+        "camera_key": "1:63", "username": "admin", "password": "secret",
+    })
+    assert result["actual_width"] == 3840
+    assert result["actual_height"] == 2160
+    assert result["codec"] == "h264"
+    assert result["profile"] == "High"
+    assert result["fps"] == "15.000000"
+    assert result["gpu_compatible"] == 0
+    assert result["status"] == "ok"

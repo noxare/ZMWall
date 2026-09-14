@@ -4,7 +4,7 @@
 
 [Detailed changelog](CHANGELOG.en.md)
 
-Current development version: **0.3.0-beta.8**
+Current development version: **0.3.0-beta.9**
 
 ZM Wall turns a lightweight Debian device into a network-managed RTSP video wall for ZoneMinder. Each physical display can use its own grid and camera assignment. ZM Wall uses ZoneMinder's integrated RTSP restream feature: it does not open another direct connection to each camera. Instead, the streams already provided by ZoneMinder are rendered with `mpv`, while the web interface is used for administration.
 
@@ -28,6 +28,8 @@ ZM Wall turns a lightweight Debian device into a network-managed RTSP video wall
 - authentication directly against ZoneMinder after the first successful synchronization
 - playback of ZoneMinder's integrated RTSP restreams through `mpv`, hardware decoding, and TCP transport
 - German and English web UI, selected automatically from the browser/system language and always manually switchable
+- all-camera RTSP diagnostics comparing the ZoneMinder configuration with the actual stream resolution
+- subtle color-coded resolution badges for every camera in the grid configuration
 - web-based stream diagnostics with credential redaction
 - safe updates from the web interface without rebooting the complete client
 
@@ -126,6 +128,8 @@ On Intel systems, ZM Wall can use a confirmed VAAPI copy-back fallback with the 
 ## Operation and diagnostics
 
 The area below **Display active** shows the display device's current network paths live. When Ethernet and Wi-Fi are connected at the same time, both interfaces are listed. Stream diagnostics add the IPv4 address, gateway, link speed, default route, and—when available—Wi-Fi SSID, signal strength, and TX bitrate. Virtual Docker interfaces without a default route are hidden.
+
+In addition to a detailed single-stream test, the diagnostics page provides **Test all cameras**. This all-camera diagnostic uses at most two concurrent connections to inspect the restreams actually delivered by ZoneMinder. It compares their resolution with the monitor resolution stored by ZoneMinder and then displays the result as a color-coded badge on every grid camera. The summary can be downloaded without RTSP addresses or credentials.
 
 Important paths:
 

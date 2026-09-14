@@ -8,6 +8,25 @@ Dieses Changelog dokumentiert die Entwicklung von ZM Wall mit Funktionen, Betrie
 
 - Noch keine Änderungen.
 
+## 0.3.0-beta.9 – 2026-09-14
+
+### Hinzugefügt
+
+- Die Diagnoseseite enthält zusätzlich zur detaillierten Einzelprüfung eine asynchrone Sammeldiagnose für alle aktivierten ZoneMinder-Restreams.
+- Höchstens zwei kurze, schreibgeschützte Streamprüfungen laufen gleichzeitig. Fortschritt und gespeicherte Ergebnisse bleiben in der Weboberfläche sichtbar; die Übersicht kann als TSV-Datei heruntergeladen werden.
+- Die Sammeldiagnose vergleicht die von ZoneMinder konfigurierte Monitorauflösung mit der tatsächlich im Restream erkannten Auflösung und erfasst Codec, Profil sowie Bildrate.
+- Jede Kamera in der Grid-Konfiguration erhält ein dezentes Auflösungs-Badge. Grün kennzeichnet eine passende Auflösung, Gelb eine Abweichung, Rot eine vom Decoder ausdrücklich gemeldete GPU-Auflösungsgrenze und Grau einen noch ungeprüften Stream.
+- Eine kleine Legende erscheint neben den Hardwareangaben jedes konfigurierten Displays.
+
+### Ablauf und Diagnose
+
+- Bereits vom normalen Player erkannte Streammetadaten werden ohne zusätzliche Verbindung zwischengespeichert. Die Sammeldiagnose kann den gesamten Bestand anschließend gezielt aktualisieren.
+- RTSP-Adressen und Zugangsdaten werden weder in den gespeicherten Ergebnissen noch in der herunterladbaren Übersicht ausgegeben.
+
+### Tests
+
+- Abdeckung für den ressourcenschonenden Ein-Frame-Probe, die Erkennung einer expliziten GPU-Auflösungsgrenze sowie die Darstellung der Auflösungsdaten in Konfiguration und Diagnoseseite.
+
 ## 0.3.0-beta.8 – 2026-09-14
 
 ### Behoben

@@ -181,6 +181,24 @@ CREATE TABLE IF NOT EXISTS hwdec_preferences (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY(stream_key, gpu_model)
 );
+CREATE TABLE IF NOT EXISTS camera_stream_config (
+  camera_key TEXT PRIMARY KEY REFERENCES cameras(camera_key) ON DELETE CASCADE,
+  configured_width INTEGER,
+  configured_height INTEGER,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS stream_diagnostics (
+  camera_key TEXT PRIMARY KEY REFERENCES cameras(camera_key) ON DELETE CASCADE,
+  actual_width INTEGER,
+  actual_height INTEGER,
+  codec TEXT,
+  profile TEXT,
+  fps TEXT,
+  gpu_compatible INTEGER,
+  status TEXT NOT NULL,
+  error TEXT,
+  checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -358,6 +376,21 @@ def sync_site(db_path: str, site_id: int) -> tuple[int, str | None]:
                     (key, site_id, monitor_id, monitor.get("Name") or f"Kamera {monitor_id}", server_id,
                      server.get("Name") or "", host, rtsp_enabled, rtsp_stream_name,
                      status_obj.get("Status") or "unbekannt"),
+                )
+                width = monitor.get("Width")
+                height = monitor.get("Height")
+                db.execute(
+                    """INSERT INTO camera_stream_config(camera_key,configured_width,configured_height,updated_at)
+                       VALUES(?,?,?,CURRENT_TIMESTAMP)
+                       ON CONFLICT(camera_key) DO UPDATE SET
+                         configured_width=excluded.configured_width,
+                         configured_height=excluded.configured_height,
+                         updated_at=CURRENT_TIMESTAMP""",
+                    (
+                        key,
+                        int(width) if str(width or "").isdigit() else None,
+                        int(height) if str(height or "").isdigit() else None,
+                    ),
                 )
             if seen:
                 placeholders = ",".join("?" for _ in seen)
@@ -581,6 +614,36 @@ class PlayerManager:
                     (stream_key, self.decode_hardware.get("gpu", ""), strategy),
                 )
         except sqlite3.Error:
+            pass
+
+    def _remember_stream_metadata(
+        self, stream_key: str, params: dict[str, Any], track: dict[str, Any], gpu: bool,
+    ) -> None:
+        """Cache metadata already observed by the normal player without another connection."""
+        width, height = params.get("w"), params.get("h")
+        if not width or not height or not Path(self.db_path).exists():
+            return
+        try:
+            with connect(self.db_path) as db:
+                db.execute(
+                    """INSERT INTO stream_diagnostics(
+                         camera_key,actual_width,actual_height,codec,profile,fps,
+                         gpu_compatible,status,error,checked_at
+                       ) VALUES(?,?,?,?,?,?,?,'ok',NULL,CURRENT_TIMESTAMP)
+                       ON CONFLICT(camera_key) DO UPDATE SET
+                         actual_width=excluded.actual_width,actual_height=excluded.actual_height,
+                         codec=COALESCE(excluded.codec,stream_diagnostics.codec),
+                         profile=COALESCE(excluded.profile,stream_diagnostics.profile),
+                         fps=COALESCE(excluded.fps,stream_diagnostics.fps),
+                         gpu_compatible=COALESCE(excluded.gpu_compatible,stream_diagnostics.gpu_compatible),
+                         status='ok',error=NULL,checked_at=CURRENT_TIMESTAMP""",
+                    (
+                        stream_key, int(width), int(height), track.get("codec"),
+                        track.get("codec-profile"), track.get("demux-fps"),
+                        1 if gpu else None,
+                    ),
+                )
+        except (sqlite3.Error, TypeError, ValueError):
             pass
 
     def _next_hwdec_strategy(self, player: Player, video_track: dict[str, Any]) -> str | None:
@@ -1007,6 +1070,9 @@ class PlayerManager:
                 )
             elif player.decode_device == "gpu":
                 self._remember_hwdec_preference(player.stream_key, player.decode_strategy)
+            self._remember_stream_metadata(
+                player.stream_key, decoded_params, video_track, player.decode_device == "gpu",
+            )
             switch_log(
                 player.tile_key, player.label, "first-frame",
                 pid=getattr(player.process, "pid", "unknown"),
