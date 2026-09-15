@@ -101,6 +101,8 @@ summary { cursor: pointer; font-weight: 700; }
 .stream-decoder.cpu { border-color: #806a28; background: #29230f; color: #f2c94c; }
 .stream-decoder.unknown, .stream-decoder.waiting { color: var(--muted); font-weight: 500; }
 .stream-decoder.preloading { border-style: dashed; }
+.stream-decoder.recovering { border-color: #806a28; background: #29230f; color: #f2c94c; }
+.stream-decoder.error { border-color: #8b353a; background: #35181b; color: #ff9b9b; }
 .stream-badges { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
 .stream-resolution { flex: 0 0 auto; padding: 2px 6px; border: 1px solid #3b4c59; border-radius: 999px; color: var(--muted); font-size: 10px; font-weight: 600; white-space: nowrap; }
 .stream-resolution.match, .resolution-state.match, .resolution-state.ok { border-color: #1b755e; background: #10251f; color: #9cf3d8; }

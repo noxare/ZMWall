@@ -34,6 +34,18 @@
         badge.className = "stream-decoder waiting";
         badge.title = labels.i18nCameraInactive;
       });
+      const recoveries = payload.recoveries || {};
+      streamBadges.forEach((badge) => {
+        const recovery = recoveries[badge.dataset.decoderCamera];
+        if (!recovery) return;
+        const running = recovery.state === "reregistering";
+        const retrying = recovery.state === "retrying";
+        badge.textContent = running
+          ? labels.i18nRtspReregistering
+          : retrying ? labels.i18nRtspRetrying : labels.i18nRtspMissing;
+        badge.className = `stream-decoder ${running || retrying ? "recovering" : "error"}`;
+        badge.title = badge.textContent;
+      });
       const runtimeStreams = Object.values(payload.screens || {}).flatMap((screen) => screen.streams || []);
       streamBadges.forEach((badge) => {
         const candidates = runtimeStreams.filter((stream) => stream.camera_key === badge.dataset.decoderCamera);

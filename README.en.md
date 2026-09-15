@@ -4,7 +4,7 @@
 
 [Detailed changelog](CHANGELOG.en.md)
 
-Current development version: **0.3.0-beta.14**
+Current development version: **0.3.0-beta.15**
 
 ZM Wall turns a lightweight Debian device into a network-managed RTSP video wall for ZoneMinder. Each physical display can use its own grid and camera assignment. ZM Wall uses ZoneMinder's integrated RTSP restream feature: it does not open another direct connection to each camera. Instead, the streams already provided by ZoneMinder are rendered with `mpv`, while the web interface is used for administration.
 
@@ -116,6 +116,8 @@ For special cases, an individual **RTSP host (optional)** can still be configure
 ## Stream recovery, rotation, and decoding
 
 ZM Wall monitors every started `mpv` process. If an RTSP stream ends or reaches the network read timeout, the player is terminated and restarted at short intervals. The image returns automatically as soon as the camera and RTSP server are available again; no wall restart is required.
+
+If a reachable ZoneMinder RTSP server explicitly responds with `404 Stream Not Found`, ZM Wall reports the condition on the affected stream. Once per outage, it toggles `Monitor.RTSPServer` off and on through the ZoneMinder API, verifies that it is enabled, and retries the stream. The one-attempt guard is reset only after a video frame is received again. Network, authentication, and decoder failures never change a ZoneMinder setting.
 
 For rotating positions, the next stream starts in parallel in a hidden surface five seconds before the switch. It must render real video frames and remain stable for at least 0.75 seconds. The previous image remains visible until the new stream is ready. Permanent X11 container windows and separate child surfaces make the final switch within the X server, avoiding the former black interval between top-level windows.
 

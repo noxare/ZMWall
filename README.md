@@ -4,7 +4,7 @@
 
 [Detaillierter Änderungsverlauf](CHANGELOG.md)
 
-Aktueller Entwicklungsstand: **0.3.0-beta.14**
+Aktueller Entwicklungsstand: **0.3.0-beta.15**
 
 ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigurierbare RTSP-Videowand für ZoneMinder. Jeder physische Monitor kann ein eigenes Raster und eine eigene Kamerabelegung erhalten. ZM Wall verwendet die integrierte RTSP-Restream-Funktion von ZoneMinder: Die Streams werden nicht zusätzlich direkt von den Kameras abgerufen, sondern von ZoneMinder bereitgestellt und mit `mpv` wiedergegeben. Die Weboberfläche dient zur Verwaltung.
 
@@ -110,6 +110,8 @@ Zusätzlich kann für Sonderfälle weiterhin in der Kameraliste ein individuelle
 ## Stream-Wiederherstellung und Rotation
 
 ZM Wall überwacht jeden gestarteten `mpv`-Prozess. Bricht ein RTSP-Stream ab oder läuft die Netzwerk-Lesezeitüberschreitung ab, wird der Player beendet und in kurzen Abständen erneut gestartet. Sobald Kamera und RTSP-Server wieder erreichbar sind, erscheint das Bild automatisch; ein Neustart der Wall ist nicht erforderlich.
+
+Antwortet ein erreichbarer ZoneMinder-RTSP-Server ausdrücklich mit `404 Stream Not Found`, meldet ZM Wall den Zustand direkt am betroffenen Stream. Für diesen Ausfall wird einmalig über die ZoneMinder-API `Monitor.RTSPServer` aus- und wieder eingeschaltet, anschließend der aktivierte Zustand kontrolliert und der Stream neu gestartet. Erst ein wieder empfangenes Videoframe setzt die Einmal-Sperre zurück. Netzwerk-, Anmelde- und Decoderfehler verändern keine ZoneMinder-Einstellung.
 
 Bei rotierenden Positionen wird der nächste RTSP-Stream fünf Sekunden vor dem Wechsel parallel und verdeckt aufgebaut. ZM Wall prüft ihn über die `mpv`-Steuerschnittstelle; das Fenster muss echte Videoframes rendern und mindestens 0,75 Sekunden stabil bereit sein. Beim Wechsel wird es über seine von `mpv` gemeldete X11-Fenster-ID angehoben. Der zuvor verwendete synchronisierte Aktivierungsaufruf wurde entfernt, da dessen zwei aufeinanderfolgende Ein-Sekunden-Zeitüberschreitungen die beobachtete Schwarzphase verursachen konnten. X11-Aufrufe sind nun auf 200 Millisekunden begrenzt und das alte Fenster wird nach einer Überlappung von 50 Millisekunden beendet. Ist die nächste Kamera noch nicht bereit, bleibt weiterhin das bisherige Bild sichtbar. Durch das auf fünf Sekunden begrenzte Preloading laufen die zusätzlichen Decoder nicht mehr während des gesamten Wechselintervalls.
 

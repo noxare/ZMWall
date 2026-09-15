@@ -8,6 +8,25 @@ Dieses Changelog dokumentiert die Entwicklung von ZM Wall mit Funktionen, Betrie
 
 - Noch keine Änderungen.
 
+## 0.3.0-beta.15 – 2026-09-15
+
+### Hinzugefügt
+
+- Laufende mpv-Prozesse werden auf ZoneMinders eindeutige Antwort `404 Stream Not Found` überwacht, ohne RTSP-Adressen oder Zugangsdaten zu protokollieren.
+- Beim ersten Auftreten je Ausfall registriert ZM Wall den betroffenen Restream über `Monitor[RTSPServer]=0/1` neu, prüft anschließend den API-Zustand und startet nur diesen Stream erneut.
+- Der Streamstatus zeigt währenddessen „RTSP wird repariert“, „RTSP wird erneut versucht“ oder „RTSP nicht verfügbar“.
+
+### Sicherheit und Ablauf
+
+- Die Reparatur läuft außerhalb der Anzeige-Schleife und blockiert weder andere Streams noch Kamerawechsel.
+- Netzwerk-, Anmelde- und Decoderfehler lösen keine schreibende API-Aktion aus.
+- Solange kein neues Videoframe empfangen wurde, wird die API-Reparatur nicht wiederholt. Nach erfolgreicher Wiederherstellung ist bei einem späteren neuen Ausfall erneut genau ein Versuch möglich.
+- Scheitert der Ablauf nach dem Abschalten, versucht ZM Wall den Restream sicherheitshalber wieder zu aktivieren.
+
+### Tests
+
+- Regressionstests für die 404-Erkennung, den geprüften API-Schaltvorgang und die Einmal-Sperre pro Ausfall.
+
 ## 0.3.0-beta.14 – 2026-09-15
 
 ### Behoben

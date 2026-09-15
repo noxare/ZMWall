@@ -1,3 +1,4 @@
+import io
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -212,6 +213,78 @@ def test_zoneminder_resolution_update_is_verified_before_local_save(monkeypatch,
             (camera_key,),
         ).fetchone()
     assert (saved["configured_width"], saved["configured_height"]) == (640, 360)
+
+
+def test_rtsp_reregistration_toggles_once_and_verifies_enabled(monkeypatch, tmp_path):
+    db_path = str(tmp_path / "zm-reregister.db")
+    init_db(db_path)
+    with connect(db_path) as db:
+        site_id = db.execute(
+            "INSERT INTO sites(name,base_url,username,password) VALUES('Test','https://zm/zm','u','p')"
+        ).lastrowid
+        camera_key = f"{site_id}:4"
+        db.execute(
+            """INSERT INTO cameras(camera_key,site_id,zm_id,name,rtsp_host,rtsp_enabled)
+               VALUES(?,?,?,?,?,1)""",
+            (camera_key, site_id, "4", "Tor", "zm"),
+        )
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"monitor": {"Monitor": {"RTSPServer": "1"}}}
+
+    class Session:
+        def __init__(self):
+            self.values = []
+
+        def put(self, _url, params=None, data=None, timeout=None):
+            self.values.append(data["Monitor[RTSPServer]"])
+            return Response()
+
+        def get(self, _url, params=None, timeout=None):
+            return Response()
+
+    session = Session()
+    monkeypatch.setattr(core, "_zone_minder_session", lambda _site: (session, {"token": "safe"}))
+    monkeypatch.setattr(core.time, "sleep", lambda _seconds: None)
+    core.reregister_monitor_rtsp(db_path, camera_key)
+    assert session.values == ["0", "1"]
+
+
+def test_missing_rtsp_recovery_is_attempted_only_once_per_outage(monkeypatch):
+    manager = core.PlayerManager("unused.db")
+    calls = []
+    monkeypatch.setattr(manager, "_recover_missing_rtsp", lambda player: calls.append(player.stream_key))
+
+    class ImmediateThread:
+        def __init__(self, target, args=(), daemon=None):
+            self.target, self.args = target, args
+
+        def start(self):
+            self.target(*self.args)
+
+    monkeypatch.setattr(core.threading, "Thread", ImmediateThread)
+    player = core.Player(
+        "stream", SimpleNamespace(stdout=None), "/tmp/missing.sock",
+        tile_key="1:0", label="Tor", stream_key="1:4", failure_reason="rtsp-not-found",
+    )
+    manager._handle_player_failure(player)
+    manager._handle_player_failure(player)
+    assert calls == ["1:4"]
+    assert manager.rtsp_recovery_status["1:4"]["state"] == "failed"
+
+
+def test_player_output_detects_zoneminder_compact_404():
+    player = core.Player(
+        "stream",
+        SimpleNamespace(stdout=io.StringIO("method DESCRIBE failed: 404Stream Not Found\n")),
+        "/tmp/missing.sock",
+    )
+    core.PlayerManager._capture_player_output(player)
+    assert player.failure_reason == "rtsp-not-found"
 
 
 def test_player_manager_prepares_current_and_upcoming_stream(monkeypatch):

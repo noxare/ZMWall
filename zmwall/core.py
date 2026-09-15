@@ -484,6 +484,55 @@ def update_monitor_resolution(
     return verified
 
 
+def reregister_monitor_rtsp(db_path: str, camera_key: str) -> None:
+    """Toggle one enabled ZoneMinder RTSP restream off/on and verify it."""
+    with connect(db_path) as db:
+        row = db.execute(
+            """SELECT c.zm_id,c.rtsp_enabled,s.* FROM cameras c
+               JOIN sites s ON s.id=c.site_id WHERE c.camera_key=?""",
+            (camera_key,),
+        ).fetchone()
+    if not row:
+        raise ValueError("Kamera nicht gefunden")
+    if not row["rtsp_enabled"]:
+        raise ValueError("RTSP-Restream ist laut ZoneMinder-API nicht aktiviert")
+
+    session, params = _zone_minder_session(row)
+    endpoint = api_url(row["base_url"], f"monitors/{row['zm_id']}.json")
+
+    def set_enabled(enabled: bool) -> None:
+        response = session.put(
+            endpoint, params=params,
+            data={"Monitor[RTSPServer]": "1" if enabled else "0"}, timeout=20,
+        )
+        response.raise_for_status()
+
+    disabled = False
+    try:
+        set_enabled(False)
+        disabled = True
+        time.sleep(1.0)
+        set_enabled(True)
+        disabled = False
+        time.sleep(1.0)
+    finally:
+        # A partial failure must not intentionally leave the restream off.
+        if disabled:
+            try:
+                set_enabled(True)
+            except requests.RequestException:
+                pass
+
+    verification = session.get(endpoint, params=params, timeout=20)
+    verification.raise_for_status()
+    payload = verification.json()
+    item = payload.get("monitor", payload.get("Monitor", payload))
+    if isinstance(item, dict) and "Monitor" in item:
+        item = item["Monitor"]
+    if not isinstance(item, dict) or not zm_enabled(item.get("RTSPServer")):
+        raise RuntimeError("ZoneMinder meldet den RTSP-Restream nach der Neuregistrierung als inaktiv")
+
+
 def detect_outputs() -> list[dict[str, int | str]]:
     env = dict(os.environ)
     env["DISPLAY"] = os.getenv("ZMWALL_DISPLAY", env.get("DISPLAY", ":0"))
@@ -558,6 +607,8 @@ class Player:
     decode_strategy: str = "auto"
     last_playback_time: float | None = None
     last_progress_at: float | None = None
+    failure_reason: str | None = None
+    output_thread: Any | None = None
 
 
 class X11WindowHost:
@@ -660,6 +711,10 @@ class PlayerManager:
         self.decode_hardware = detect_decode_hardware()
         self.hwdec_strategies = detect_hwdec_strategies(self.decode_hardware)
         self.hwdec_preferences = self._load_hwdec_preferences()
+        self.rtsp_recovery_attempted: set[str] = set()
+        self.rtsp_recovery_in_progress: set[str] = set()
+        self.rtsp_recovery_status: dict[str, dict[str, str]] = {}
+        self.rtsp_recovery_lock = threading.Lock()
 
     def _load_hwdec_preferences(self) -> dict[str, str]:
         """Load only strategies valid for the GPU and drivers on this client."""
@@ -772,6 +827,64 @@ class PlayerManager:
             timeout_seconds=HWDEC_START_TIMEOUT_SECONDS,
         )
 
+    @staticmethod
+    def _capture_player_output(player: Player) -> None:
+        """Drain mpv output and retain only credential-free recovery signals."""
+        output = player.process.stdout
+        if output is None:
+            return
+        for line in output:
+            if re.search(r"\b404\s*(?:stream\s*)?not\s+found\b", line, re.IGNORECASE):
+                player.failure_reason = "rtsp-not-found"
+
+    def _recover_missing_rtsp(self, player: Player) -> None:
+        """Run one API re-registration attempt for the current outage."""
+        stream_key = player.stream_key
+        try:
+            reregister_monitor_rtsp(self.db_path, stream_key)
+        except (ValueError, RuntimeError, requests.RequestException) as error:
+            with self.rtsp_recovery_lock:
+                self.rtsp_recovery_status[stream_key] = {
+                    "state": "failed", "message": type(error).__name__,
+                }
+            switch_log(
+                player.tile_key, player.label, "rtsp-reregister-failed",
+                error=type(error).__name__,
+            )
+        else:
+            with self.rtsp_recovery_lock:
+                self.rtsp_recovery_status[stream_key] = {
+                    "state": "retrying", "message": "reregistered",
+                }
+            switch_log(player.tile_key, player.label, "rtsp-reregister-complete")
+            self.reload_event.set()
+        finally:
+            with self.rtsp_recovery_lock:
+                self.rtsp_recovery_in_progress.discard(stream_key)
+
+    def _handle_player_failure(self, player: Player) -> None:
+        if player.output_thread is not None:
+            player.output_thread.join(timeout=0.25)
+        if player.failure_reason != "rtsp-not-found":
+            return
+        with self.rtsp_recovery_lock:
+            if player.stream_key in self.rtsp_recovery_attempted:
+                self.rtsp_recovery_status[player.stream_key] = {
+                    "state": "failed", "message": "still-not-found",
+                }
+                switch_log(
+                    player.tile_key, player.label, "rtsp-still-not-found",
+                    recovery="not-repeated",
+                )
+                return
+            self.rtsp_recovery_attempted.add(player.stream_key)
+            self.rtsp_recovery_in_progress.add(player.stream_key)
+            self.rtsp_recovery_status[player.stream_key] = {
+                "state": "reregistering", "message": "404-stream-not-found",
+            }
+        switch_log(player.tile_key, player.label, "rtsp-not-found", recovery="starting-once")
+        threading.Thread(target=self._recover_missing_rtsp, args=(player,), daemon=True).start()
+
     def runtime_status(self) -> dict[str, Any]:
         """Return the actual decoder in use, grouped by physical monitor."""
         with connect(self.db_path) as db:
@@ -830,10 +943,13 @@ class PlayerManager:
             else:
                 screen["state"] = "cpu"
                 screen["label"] = f"CPU · {self.decode_hardware['cpu']}"
+        with self.rtsp_recovery_lock:
+            recoveries = {key: dict(value) for key, value in self.rtsp_recovery_status.items()}
         return {
             "hardware": dict(self.decode_hardware),
             "network": detect_network_status(),
             "screens": screens,
+            "recoveries": recoveries,
         }
 
     def request_reload(self, reset_layout: bool = False) -> None:
@@ -953,7 +1069,8 @@ class PlayerManager:
                             "--video-zoom=0", "--no-osc", "--cursor-autohide=always",
                             "--profile=low-latency", *hwdec_arguments(decode_strategy),
                             "--demuxer-lavf-o=rtsp_transport=tcp,rw_timeout=15000000",
-                            f"--geometry={geometry}", "--really-quiet", "--playlist=-",
+                            f"--geometry={geometry}",
+                            "--msg-level=all=warn", "--playlist=-",
                         ]
                         if position == (screen["rows"] * screen["cols"]) - 1:
                             command.extend([
@@ -1021,7 +1138,10 @@ class PlayerManager:
         command.insert(-1, f"--input-ipc-server={ipc_path}")
         started = time.monotonic()
         try:
-            process = subprocess.Popen(command, env=env, stdin=subprocess.PIPE, text=True)
+            process = subprocess.Popen(
+                command, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, text=True, bufsize=1,
+            )
             if process.stdin:
                 process.stdin.write(spec.url + "\n")
                 process.stdin.close()
@@ -1033,6 +1153,10 @@ class PlayerManager:
                 stream_key=spec.stream_key,
                 decode_strategy=spec.decode_strategy,
             )
+            player.output_thread = threading.Thread(
+                target=self._capture_player_output, args=(player,), daemon=True,
+            )
+            player.output_thread.start()
             switch_log(
                 key, spec.label, "launch", role="preload" if hidden else "active",
                 pid=process.pid, rendering="embedded" if surface is not None else "top-level",
@@ -1091,6 +1215,12 @@ class PlayerManager:
             player.ready_since = None
             player.ready_logged = False
             return False
+
+        with self.rtsp_recovery_lock:
+            recovered = self.rtsp_recovery_status.pop(player.stream_key, None)
+            self.rtsp_recovery_attempted.discard(player.stream_key)
+        if recovered is not None:
+            switch_log(player.tile_key, player.label, "rtsp-stream-recovered")
 
         now = time.monotonic()
         playback_time = self._ipc(player, ["get_property", "time-pos"])
@@ -1396,15 +1526,21 @@ class PlayerManager:
             preload = self.preloads.get(key)
 
             if active and active.process.poll() is not None:
+                self._handle_player_failure(active)
                 self._terminate(active)
                 self.players.pop(key, None)
                 active = None
             if preload and preload.process.poll() is not None:
+                self._handle_player_failure(preload)
                 self._terminate(preload)
                 self.preloads.pop(key, None)
                 preload = None
 
             if not active:
+                with self.rtsp_recovery_lock:
+                    recovery_running = current.stream_key in self.rtsp_recovery_in_progress
+                if recovery_running:
+                    continue
                 if preload and preload.signature == current.signature and self._ready(preload):
                     self._promote(key, preload)
                     active = preload
