@@ -8,6 +8,19 @@ Dieses Changelog dokumentiert die Entwicklung von ZM Wall mit Funktionen, Betrie
 
 - Noch keine Änderungen.
 
+## 0.3.0-beta.18 – 2026-09-15
+
+### Diagnose-Adminmodus
+
+- Ein erfolgreich verwendeter temporärer ZoneMinder-API-Benutzer bleibt für weitere RTSP-Reparaturen und Auflösungsübernahmen innerhalb derselben Diagnosesitzung aktiv.
+- Der aktive Benutzer wird auf der Diagnoseseite sichtbar angezeigt. Ein erneutes Eingeben für jede Kamera ist nicht mehr erforderlich.
+- Das Kennwort liegt ausschließlich im Arbeitsspeicher des laufenden ZM-Wall-Prozesses. Cookie, Datenbank und Logs enthalten keine Zugangsdaten.
+- Beim Wechsel zurück zur Hauptseite werden Benutzername und Kennwort sofort verworfen. Abgelehnte Zugangsdaten (`HTTP 401`) werden nicht vorgehalten beziehungsweise aus einer laufenden Diagnosesitzung entfernt.
+
+### Tests
+
+- Regressionstest für Wiederverwendung und Löschung der temporären API-Anmeldung. Insgesamt 63 automatisierte Tests.
+
 ## 0.3.0-beta.17 – 2026-09-15
 
 ### Oberfläche

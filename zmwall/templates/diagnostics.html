@@ -27,6 +27,12 @@
   {% endfor %}
   <section class="panel diagnostics-panel">
     <div><h2>{{ t('check_stream') }}</h2><p>{{ t('diagnostics_help') }}</p></div>
+    {% if temporary_api_username %}
+      <div class="temporary-api-active">
+        <strong>{{ t('temporary_api_active', username=temporary_api_username) }}</strong>
+        <small>{{ t('temporary_api_active_notice') }}</small>
+      </div>
+    {% endif %}
     <form method="post" class="diagnostics-form" data-diagnostics-form>
       <label>{{ t('camera') }}
         <select name="camera_key" required>
@@ -102,7 +108,7 @@
               {% endif %}
               {% if camera.can_apply_resolution or camera.recovery_state == 'failed' %}
                 <details class="temporary-api-login">
-                  <summary>{{ t('temporary_api_login') }}</summary>
+                  <summary>{{ t('temporary_api_change') if temporary_api_username else t('temporary_api_login') }}</summary>
                   <form method="post" class="temporary-api-form">
                     <input type="hidden" name="camera_key" value="{{ camera.camera_key }}">
                     <label>{{ t('temporary_username') }}
@@ -119,7 +125,7 @@
                               onclick="return confirm({{ t('apply_resolution_confirm')|tojson }})">{{ t('apply_resolution') }}</button>
                     {% endif %}
                   </form>
-                  <small>{{ t('temporary_credentials_notice') }}</small>
+                  <small>{{ t('temporary_credentials_session_notice') }}</small>
                 </details>
               {% endif %}
             </td>

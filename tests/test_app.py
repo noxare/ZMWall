@@ -137,3 +137,59 @@ def test_manual_rtsp_retry_accepts_one_time_credentials(monkeypatch, tmp_path):
     )
     assert response.status_code == 302
     assert calls == [(camera_key, "admin", "one-shot-secret")]
+
+
+def test_diagnostic_admin_credentials_are_reused_until_main_page(monkeypatch, tmp_path):
+    db_path = str(tmp_path / "diagnostic-session.db")
+    web = importlib.import_module("zmwall.app")
+    web.DB_PATH = db_path
+    init_db(db_path)
+    with connect(db_path) as db:
+        site_id = db.execute(
+            "INSERT INTO sites(name,base_url,username,password) VALUES(?,?,?,?)",
+            ("Test", "https://zm.invalid/zm", "user", "password"),
+        ).lastrowid
+        camera_key = f"{site_id}:63"
+        db.execute(
+            """INSERT INTO cameras(camera_key,site_id,zm_id,name,rtsp_host,rtsp_enabled)
+               VALUES(?,?,?,?,?,1)""",
+            (camera_key, site_id, "63", "Galerie", "zm.invalid"),
+        )
+    calls = []
+    monkeypatch.setattr(
+        web.manager, "reregister_rtsp_now",
+        lambda key, username, password: calls.append((key, username, password))
+        or (True, "stream", "reregistered"),
+    )
+    monkeypatch.setattr(web, "detect_outputs", lambda: [])
+    monkeypatch.setattr(web.manager, "runtime_status", lambda: {
+        "hardware": {"cpu": "Test CPU", "gpu": "Test GPU"},
+        "network": {"state": "offline", "connections": []},
+        "screens": {},
+    })
+    client = web.app.test_client()
+
+    first = client.post("/diagnostics/rtsp/reregister", data={
+        "camera_key": camera_key,
+        "temporary_username": "admin",
+        "temporary_password": "session-secret",
+    })
+    assert first.status_code == 302
+    active_page = client.get("/diagnostics", headers={"Accept-Language": "de"})
+    assert "Diagnose-Adminmodus aktiv: admin" in active_page.text
+
+    second = client.post(
+        "/diagnostics/rtsp/reregister", data={"camera_key": camera_key},
+    )
+    assert second.status_code == 302
+    assert calls[:2] == [
+        (camera_key, "admin", "session-secret"),
+        (camera_key, "admin", "session-secret"),
+    ]
+
+    assert client.get("/").status_code == 200
+    third = client.post(
+        "/diagnostics/rtsp/reregister", data={"camera_key": camera_key},
+    )
+    assert third.status_code == 302
+    assert calls[2] == (camera_key, None, None)

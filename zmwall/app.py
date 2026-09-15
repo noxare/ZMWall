@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 import signal
 import subprocess
 import threading
@@ -9,7 +10,7 @@ from functools import wraps
 from pathlib import Path
 
 import requests
-from flask import Flask, Response, flash, g, jsonify, redirect, render_template, request, url_for
+from flask import Flask, Response, flash, g, jsonify, redirect, render_template, request, session, url_for
 
 from . import __version__
 from .core import (
@@ -35,6 +36,8 @@ UPDATE_ORIGINS = {
 update_lock = threading.Lock()
 diagnostic_lock = threading.Lock()
 batch_state_lock = threading.Lock()
+temporary_api_credentials_lock = threading.Lock()
+temporary_api_credentials: dict[str, tuple[str, str]] = {}
 batch_state = {"state": "idle", "completed": 0, "total": 0, "camera_key": None}
 update_state = {"state": "checking", "message_key": "update_searching"}
 
@@ -47,6 +50,47 @@ def current_language() -> str:
 
 def t(key: str, **values: object) -> str:
     return translate(current_language(), key, **values)
+
+
+def _temporary_api_session_id(create: bool = False) -> str | None:
+    session_id = session.get("diagnostic_api_session")
+    if not session_id and create:
+        session_id = secrets.token_urlsafe(32)
+        session["diagnostic_api_session"] = session_id
+    return session_id
+
+
+def _cached_temporary_api_credentials() -> tuple[str | None, str | None]:
+    session_id = _temporary_api_session_id()
+    if not session_id:
+        return None, None
+    with temporary_api_credentials_lock:
+        credentials = temporary_api_credentials.get(session_id)
+    return credentials if credentials else (None, None)
+
+
+def _remember_temporary_api_credentials(username: str, password: str) -> None:
+    session_id = _temporary_api_session_id(create=True)
+    with temporary_api_credentials_lock:
+        temporary_api_credentials[session_id] = (username, password)
+
+
+def _clear_temporary_api_credentials() -> None:
+    session_id = session.pop("diagnostic_api_session", None)
+    if session_id:
+        with temporary_api_credentials_lock:
+            temporary_api_credentials.pop(session_id, None)
+
+
+def _requested_api_credentials() -> tuple[str | None, str | None, bool]:
+    username = request.form.get("temporary_username") or None
+    password = request.form.get("temporary_password") or None
+    if bool(username) != bool(password):
+        raise ValueError("incomplete temporary credentials")
+    if username and password:
+        return username, password, True
+    cached_username, cached_password = _cached_temporary_api_credentials()
+    return cached_username, cached_password, False
 
 
 def _diagnostic_class(row: object) -> str:
@@ -258,6 +302,7 @@ def login_required(fn):
 @app.route("/")
 @login_required
 def index():
+    _clear_temporary_api_credentials()
     with connect(DB_PATH) as db:
         sites = db.execute("SELECT * FROM sites ORDER BY name").fetchall()
         zm_servers = db.execute("SELECT * FROM zm_servers ORDER BY site_id,name").fetchall()
@@ -371,6 +416,7 @@ def diagnostics():
         "diagnostics.html", cameras=diagnostic_cameras, selected=selected,
         result=result, diagnostic_error=diagnostic_error, version=__version__,
         batch_rows=[_camera_view(row) for row in batch_rows],
+        temporary_api_username=_cached_temporary_api_credentials()[0],
     )
 
 
@@ -444,22 +490,26 @@ def apply_diagnostic_resolution():
         flash(t("resolution_already_matches"), "ok")
         return redirect(url_for("diagnostics"))
     try:
-        temporary_username = request.form.get("temporary_username") or None
-        temporary_password = request.form.get("temporary_password") or None
-        if bool(temporary_username) != bool(temporary_password):
-            flash(t("temporary_credentials_incomplete"), "error")
-            return redirect(url_for("diagnostics"))
+        temporary_username, temporary_password, credentials_provided = _requested_api_credentials()
+    except ValueError:
+        flash(t("temporary_credentials_incomplete"), "error")
+        return redirect(url_for("diagnostics"))
+    try:
         width, height = update_monitor_resolution(
             DB_PATH, camera_key, int(row["actual_width"]), int(row["actual_height"]),
             temporary_username, temporary_password,
         )
     except requests.RequestException as error:
         status_code = error.response.status_code if error.response is not None else None
+        if status_code == 401 and temporary_username:
+            _clear_temporary_api_credentials()
         detail = f"HTTP {status_code}" if status_code else type(error).__name__
         flash(t("resolution_apply_failed", error=detail), "error")
     except (ValueError, RuntimeError) as error:
         flash(t("resolution_apply_failed", error=str(error)[:300]), "error")
     else:
+        if credentials_provided:
+            _remember_temporary_api_credentials(temporary_username, temporary_password)
         flash(t("resolution_applied", camera=row["name"], width=width, height=height), "ok")
     return redirect(url_for("diagnostics"))
 
@@ -468,9 +518,9 @@ def apply_diagnostic_resolution():
 @login_required
 def reregister_diagnostic_rtsp():
     camera_key = request.form.get("camera_key", "")
-    temporary_username = request.form.get("temporary_username") or None
-    temporary_password = request.form.get("temporary_password") or None
-    if bool(temporary_username) != bool(temporary_password):
+    try:
+        temporary_username, temporary_password, credentials_provided = _requested_api_credentials()
+    except ValueError:
         flash(t("temporary_credentials_incomplete"), "error")
         return redirect(url_for("diagnostics"))
     with connect(DB_PATH) as db:
@@ -484,6 +534,10 @@ def reregister_diagnostic_rtsp():
     success, stage, reason = manager.reregister_rtsp_now(
         camera_key, temporary_username, temporary_password,
     )
+    if success and credentials_provided:
+        _remember_temporary_api_credentials(temporary_username, temporary_password)
+    elif not success and reason == "authentication_denied" and temporary_username:
+        _clear_temporary_api_credentials()
     detail = _recovery_description(stage, reason)
     flash(
         t("rtsp_manual_started", camera=camera["name"]) if success

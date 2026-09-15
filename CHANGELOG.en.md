@@ -8,6 +8,19 @@ This changelog documents ZM Wall's features, operational flows, technical decisi
 
 - No changes yet.
 
+## 0.3.0-beta.18 – 2026-09-15
+
+### Diagnostic admin mode
+
+- A successfully used temporary ZoneMinder API user remains active for further RTSP repairs and resolution updates in the same diagnostic session.
+- The active user is shown on the diagnostics page, so credentials no longer need to be entered for every camera.
+- The password exists only in memory of the running ZM Wall process. Credentials are not placed in cookies, the database, or logs.
+- Returning to the main page immediately clears the username and password. Rejected credentials (`HTTP 401`) are not retained and are removed from an active diagnostic session.
+
+### Tests
+
+- Regression coverage for reusing and clearing temporary API credentials. A total of 63 automated tests.
+
 ## 0.3.0-beta.17 – 2026-09-15
 
 ### Interface

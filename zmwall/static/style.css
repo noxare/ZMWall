@@ -130,6 +130,7 @@ summary { cursor: pointer; font-weight: 700; }
 .diagnostics-panel p, .diagnostic-result p { color: var(--muted); }
 .diagnostics-form { display: grid; grid-template-columns: minmax(260px, 1fr) auto; gap: 12px; align-items: end; }
 .diagnostics-running { color: #f2c94c !important; }
+.temporary-api-active { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 12px; padding: 9px 11px; border: 1px solid #1b755e; border-radius: 7px; background: #10251f; color: #9cf3d8; }
 .diagnostic-result pre { max-height: 65vh; margin: 0; padding: 14px; overflow: auto; border: 1px solid var(--line); border-radius: 7px; background: #080c10; color: #d7e1e8; font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .diagnostic-actions { display: flex; gap: 8px; }
 .batch-progress { display: grid; grid-template-columns: minmax(180px, 1fr) auto; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; }
