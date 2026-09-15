@@ -27,6 +27,8 @@ WINDOW_COMMAND_TIMEOUT_SECONDS = 0.20
 WINDOW_SWITCH_SETTLE_SECONDS = 0.05
 MAX_CONCURRENT_HWDEC_UPGRADES = 2
 HWDEC_START_TIMEOUT_SECONDS = 30.0
+STREAM_START_TIMEOUT_SECONDS = 30.0
+STREAM_STALL_TIMEOUT_SECONDS = 20.0
 
 
 def _clean_hardware_name(value: str) -> str:
@@ -476,6 +478,8 @@ class Player:
     codec: str = "unknown"
     stream_key: str = "unbekannt"
     decode_strategy: str = "auto"
+    last_playback_time: float | None = None
+    last_progress_at: float | None = None
 
 
 class X11WindowHost:
@@ -1009,12 +1013,27 @@ class PlayerManager:
             player.ready_logged = False
             return False
 
+        now = time.monotonic()
+        playback_time = self._ipc(player, ["get_property", "time-pos"])
+        playback_value = (
+            playback_time.get("data")
+            if playback_time and playback_time.get("error") == "success"
+            else None
+        )
+        if isinstance(playback_value, (int, float)) and not isinstance(playback_value, bool):
+            position = float(playback_value)
+            if (
+                player.last_playback_time is None
+                or abs(position - player.last_playback_time) >= 0.001
+            ):
+                player.last_playback_time = position
+                player.last_progress_at = now
+
         if player.window_id is None:
             window = self._ipc(player, ["get_property", "window-id"])
             if window and window.get("error") == "success" and window.get("data") is not None:
                 player.window_id = str(window["data"])
 
-        now = time.monotonic()
         if player.ready_since is None:
             player.ready_since = now
             hardware = self._ipc(player, ["get_property", "hwdec-current"])
@@ -1100,6 +1119,42 @@ class PlayerManager:
                 launch_ms=round((now - player.launched_at) * 1000),
             )
         return is_ready
+
+    @staticmethod
+    def _stream_watchdog_reason(player: Player, now: float | None = None) -> str | None:
+        """Detect a live mpv process that stopped delivering playback progress."""
+        if player.launched_at <= 0:
+            return None
+        timestamp = time.monotonic() if now is None else now
+        if (
+            player.last_progress_at is not None
+            and timestamp - player.last_progress_at >= STREAM_STALL_TIMEOUT_SECONDS
+        ):
+            return "playback-stalled"
+        if (
+            player.ready_since is None
+            and player.last_progress_at is None
+            and timestamp - player.launched_at >= STREAM_START_TIMEOUT_SECONDS
+        ):
+            return "startup-timeout"
+        return None
+
+    def _discard_stalled_player(
+        self, key: str, player: Player, collection: dict[str, Player], role: str, reason: str,
+    ) -> None:
+        stalled_for = (
+            round(time.monotonic() - player.last_progress_at, 1)
+            if player.last_progress_at is not None
+            else round(time.monotonic() - player.launched_at, 1)
+        )
+        switch_log(
+            key, player.label, "stream-watchdog-restart",
+            role=role, reason=reason, stalled_seconds=stalled_for,
+            pid=getattr(player.process, "pid", "unknown"),
+        )
+        self._terminate(player)
+        collection.pop(key, None)
+        self.reload_event.set()
 
     def _raise(self, player: Player) -> bool:
         started = time.monotonic()
@@ -1292,7 +1347,8 @@ class PlayerManager:
                     and active.decode_strategy != current.decode_strategy
                 )
                 if preload and preload.signature == current.signature:
-                    if self._ready(preload):
+                    preload_ready = self._ready(preload)
+                    if preload_ready:
                         self._promote(key, preload)
                         active = preload
                         preload = None
@@ -1302,6 +1358,11 @@ class PlayerManager:
                         self._abandon_hwdec_upgrade(key, active, preload)
                         preload = None
                         hwdec_upgrades = max(0, hwdec_upgrades - 1)
+                    elif reason := self._stream_watchdog_reason(preload):
+                        self._discard_stalled_player(
+                            key, preload, self.preloads, "preload", reason,
+                        )
+                        preload = None
                 else:
                     if preload:
                         self._terminate(preload)
@@ -1329,6 +1390,14 @@ class PlayerManager:
                         timeout_seconds=HWDEC_START_TIMEOUT_SECONDS,
                     )
                     continue
+                if reason := self._stream_watchdog_reason(active):
+                    self._discard_stalled_player(
+                        key, active, self.players, "active", reason,
+                    )
+                    replacement = self._launch(key, current, hidden=False)
+                    if replacement:
+                        self.players[key] = replacement
+                    continue
                 target = upcoming
                 preload = self.preloads.get(key)
                 if target is None:
@@ -1347,6 +1416,10 @@ class PlayerManager:
                 # decode and render stable frames well before it is raised.
                 if preload:
                     self._ready(preload)
+                    if reason := self._stream_watchdog_reason(preload):
+                        self._discard_stalled_player(
+                            key, preload, self.preloads, "preload", reason,
+                        )
 
     def run(self) -> None:
         while not self.stop_event.is_set():

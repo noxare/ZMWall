@@ -276,6 +276,7 @@ def test_failed_copy_advances_to_installed_intel_driver(monkeypatch):
         values = {
             "video-params": {"w": 640, "h": 360},
             "video-frame-info": {"picture-type": "P"},
+            "time-pos": 1.0,
             "hwdec-current": "no",
             "hwdec-interop": "none",
             "window-id": 1234,
@@ -431,6 +432,7 @@ def test_transient_unknown_hwdec_preserves_confirmed_gpu(monkeypatch):
         values = {
             "video-params": {"w": 640, "h": 360, "pixelformat": "nv12"},
             "video-frame-info": {"picture-type": "P"},
+            "time-pos": 1.0,
             "hwdec-current": "unknown",
             "hwdec-interop": "none",
             "window-id": 1234,
@@ -459,6 +461,7 @@ def test_unknown_hwdec_is_not_misreported_as_cpu(monkeypatch):
         values = {
             "video-params": {"w": 640, "h": 360},
             "video-frame-info": {"picture-type": "P"},
+            "time-pos": 1.0,
             "hwdec-current": "unknown",
             "hwdec-interop": "none",
             "window-id": 1234,
@@ -881,3 +884,107 @@ def test_missing_rendered_frame_resets_preload_warmup(monkeypatch):
     now[0] += core.PRELOAD_STABLE_SECONDS
     assert not manager._ready(player)
     assert player.ready_since is None
+
+
+def test_stream_watchdog_detects_alive_player_without_playback_progress():
+    player = core.Player(
+        "stream", SimpleNamespace(poll=lambda: None), "/tmp/stalled.sock",
+        launched_at=10.0, ready_since=11.0,
+        last_playback_time=42.0, last_progress_at=20.0,
+    )
+
+    assert core.PlayerManager._stream_watchdog_reason(player, now=39.9) is None
+    assert (
+        core.PlayerManager._stream_watchdog_reason(player, now=40.0)
+        == "playback-stalled"
+    )
+
+
+def test_stream_watchdog_detects_player_that_never_started():
+    player = core.Player(
+        "stream", SimpleNamespace(poll=lambda: None), "/tmp/not-started.sock",
+        launched_at=10.0,
+    )
+
+    assert core.PlayerManager._stream_watchdog_reason(player, now=39.9) is None
+    assert (
+        core.PlayerManager._stream_watchdog_reason(player, now=40.0)
+        == "startup-timeout"
+    )
+
+
+def test_ready_tracks_mpv_playback_progress(monkeypatch):
+    manager = core.PlayerManager("unused.db")
+    player = core.Player(
+        "stream", SimpleNamespace(pid=500, poll=lambda: None), "/tmp/progress.sock",
+        launched_at=5.0,
+    )
+    now = [10.0]
+    position = [1.0]
+    monkeypatch.setattr(core.time, "monotonic", lambda: now[0])
+
+    def fake_ipc(_player, command):
+        name = command[-1]
+        values = {
+            "video-params": {"w": 640, "h": 360},
+            "video-frame-info": {"picture-type": "P"},
+            "time-pos": position[0],
+            "window-id": 1234,
+            "hwdec-current": "no",
+            "hwdec-interop": "none",
+            "track-list": [{"type": "video", "selected": True, "codec": "h264"}],
+        }
+        return {"error": "success", "data": values[name]}
+
+    monkeypatch.setattr(manager, "_ipc", fake_ipc)
+    manager._ready(player)
+    assert player.last_progress_at == 10.0
+
+    now[0] = 15.0
+    manager._ready(player)
+    assert player.last_progress_at == 10.0
+
+    now[0] = 16.0
+    position[0] = 2.0
+    manager._ready(player)
+    assert player.last_progress_at == 16.0
+
+
+def test_stream_watchdog_restarts_stalled_active_player(monkeypatch):
+    class FakeProcess:
+        pid = 501
+
+        def __init__(self):
+            self.terminated = False
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            self.terminated = True
+
+    manager = core.PlayerManager("unused.db")
+    stalled = core.Player(
+        "stream", FakeProcess(), "/tmp/stalled-active.sock",
+        tile_key="1:0", label="Kamera", stream_key="1:90",
+        launched_at=10.0, ready_since=11.0,
+        last_playback_time=42.0, last_progress_at=20.0,
+    )
+    manager.players["1:0"] = stalled
+    spec = core.StreamSpec(
+        "stream", ["mpv"], "rtsp://test", label="Kamera", stream_key="1:90",
+    )
+    replacement = core.Player(
+        "stream", FakeProcess(), "/tmp/replacement.sock",
+        tile_key="1:0", label="Kamera", stream_key="1:90", launched_at=40.0,
+    )
+    monkeypatch.setattr(core.time, "monotonic", lambda: 40.0)
+    monkeypatch.setattr(manager, "desired", lambda: {"1:0": (spec, None)})
+    monkeypatch.setattr(manager, "_ready", lambda _player: False)
+    monkeypatch.setattr(manager, "_launch", lambda *_args, **_kwargs: replacement)
+
+    manager.reconcile()
+
+    assert stalled.process.terminated
+    assert manager.players["1:0"] is replacement
+    assert manager.reload_event.is_set()

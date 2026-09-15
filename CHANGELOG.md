@@ -8,6 +8,23 @@ Dieses Changelog dokumentiert die Entwicklung von ZM Wall mit Funktionen, Betrie
 
 - Noch keine Änderungen.
 
+## 0.3.0-beta.11 – 2026-09-15
+
+### Behoben
+
+- Der bisherige Stream-Watchdog startete mpv nur neu, wenn der Prozess vollständig beendet war. Nach einem RTSP-Verlust konnte mpv jedoch weiterlaufen, obwohl keine neuen Bilder mehr ankamen, und wurde dadurch fälschlich als aktiv behandelt.
+- ZM Wall überwacht nun zusätzlich den Fortschritt der mpv-Wiedergabezeit. Bleibt ein zuvor laufender Stream 20 Sekunden stehen, wird ausschließlich der betroffene Player neu aufgebaut.
+- Ein Player, der innerhalb von 30 Sekunden überhaupt kein erstes Bild liefert, wird ebenfalls kontrolliert ersetzt. Dies gilt auch für vorgepufferte Rotationsstreams.
+- Der bestehende GPU-Kapazitäts-Fallback behält Vorrang, damit eine ausgelastete GPU nicht durch endlose Hardware-Neustarts belastet wird.
+
+### Diagnose
+
+- Watchdog-Neustarts erscheinen im ZM-Wall-Log als `stream-watchdog-restart` mit Rolle, Ursache, Stillstandszeit und Prozess-ID.
+
+### Tests
+
+- Regressionstests für ausbleibenden Wiedergabefortschritt, fehlenden Streamstart, Fortschrittserfassung und den gezielten Neustart eines weiterhin laufenden mpv-Prozesses.
+
 ## 0.3.0-beta.10 – 2026-09-14
 
 ### Behoben
