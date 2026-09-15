@@ -12,7 +12,10 @@ import requests
 from flask import Flask, Response, flash, g, jsonify, redirect, render_template, request, url_for
 
 from . import __version__
-from .core import PlayerManager, api_url, connect, detect_outputs, init_db, parse_camera_keys, sync_site
+from .core import (
+    PlayerManager, api_url, connect, detect_outputs, init_db, parse_camera_keys,
+    sync_site, update_monitor_resolution,
+)
 from .diagnostics import diagnose_all_cameras, diagnose_camera
 from .i18n import SUPPORTED_LANGUAGES, resolve_language, translate
 
@@ -47,12 +50,6 @@ def t(key: str, **values: object) -> str:
 
 
 def _diagnostic_class(row: object) -> str:
-    if not row["diagnostic_status"]:
-        return "unchecked"
-    if row["diagnostic_status"] != "ok":
-        return "error"
-    if row["gpu_compatible"] == 0:
-        return "gpu-limit"
     configured = (row["configured_width"], row["configured_height"])
     actual = (row["actual_width"], row["actual_height"])
     if all(configured) and configured == actual:
@@ -69,9 +66,7 @@ def _camera_view(row: object) -> dict[str, object]:
         f"{row['actual_width']}×{row['actual_height']}"
         if row["actual_width"] and row["actual_height"] else "—"
     )
-    if row["diagnostic_status"] and row["diagnostic_status"] != "ok":
-        camera["resolution_title"] = t("resolution_error")
-    elif row["actual_width"] and row["actual_height"]:
+    if row["actual_width"] and row["actual_height"]:
         actual = camera["resolution_label"]
         configured = (
             f"{row['configured_width']}×{row['configured_height']}"
@@ -82,6 +77,14 @@ def _camera_view(row: object) -> dict[str, object]:
         )
     else:
         camera["resolution_title"] = t("resolution_not_checked")
+    probe_status = camera.get("probe_status")
+    camera["probe_class"] = "ok" if probe_status == "ok" else (
+        "unchecked" if not probe_status else "error"
+    )
+    camera["probe_label"] = t(f"probe_{probe_status or 'unchecked'}")
+    camera["can_apply_resolution"] = (
+        probe_status == "ok" and camera["resolution_class"] == "mismatch"
+    )
     return camera
 
 
@@ -245,8 +248,7 @@ def index():
         selectable_cameras = [
             _camera_view(row) for row in db.execute(
                 f"""SELECT c.*,csc.configured_width,csc.configured_height,
-                           sd.actual_width,sd.actual_height,sd.gpu_compatible,
-                           sd.status AS diagnostic_status,sd.checked_at
+                           sd.actual_width,sd.actual_height,sd.checked_at
                     FROM cameras c {CAMERA_DIAGNOSTIC_JOIN}
                     WHERE c.rtsp_enabled=1 ORDER BY c.name"""
             ).fetchall()
@@ -255,8 +257,7 @@ def index():
         assignment_rows = db.execute(
             f"""SELECT tc.screen_id,tc.position,tc.camera_key,tc.sort_order,c.name,c.server_name,
                        csc.configured_width,csc.configured_height,
-                       sd.actual_width,sd.actual_height,sd.gpu_compatible,
-                       sd.status AS diagnostic_status,sd.checked_at
+                       sd.actual_width,sd.actual_height,sd.checked_at
                FROM tile_cameras tc JOIN cameras c ON c.camera_key=tc.camera_key
                {CAMERA_DIAGNOSTIC_JOIN}
                WHERE c.rtsp_enabled=1 AND c.enabled=1
@@ -313,10 +314,13 @@ def diagnostics():
                WHERE enabled=1 AND rtsp_enabled=1 ORDER BY name"""
         ).fetchall()
         batch_rows = db.execute(
-            """SELECT c.camera_key,c.zm_id,c.name,c.server_name,
+            """SELECT c.camera_key,c.zm_id,c.name,c.server_name,c.status AS zm_status,
                       csc.configured_width,csc.configured_height,
-                      sd.actual_width,sd.actual_height,sd.codec,sd.profile,sd.fps,
-                      sd.gpu_compatible,sd.status AS diagnostic_status,sd.error,sd.checked_at
+                      COALESCE(sd.probe_width,sd.actual_width) AS actual_width,
+                      COALESCE(sd.probe_height,sd.actual_height) AS actual_height,
+                      sd.codec,sd.profile,sd.fps,
+                      sd.checked_at,sd.probe_status,sd.probe_error,sd.probe_checked_at,
+                      sd.metadata_source
                FROM cameras c
                LEFT JOIN camera_stream_config csc ON csc.camera_key=c.camera_key
                LEFT JOIN stream_diagnostics sd ON sd.camera_key=c.camera_key
@@ -354,7 +358,7 @@ def _run_batch_diagnostics() -> None:
             })
 
     try:
-        diagnose_all_cameras(DB_PATH, progress=progress, max_workers=2)
+        diagnose_all_cameras(DB_PATH, progress=progress, max_workers=1)
         with batch_state_lock:
             batch_state.update({"state": "completed", "camera_key": None})
     except Exception as error:
@@ -389,6 +393,44 @@ def start_all_diagnostics():
 def all_diagnostics_status():
     with batch_state_lock:
         return jsonify(dict(batch_state))
+
+
+@app.post("/diagnostics/resolution/apply")
+@login_required
+def apply_diagnostic_resolution():
+    camera_key = request.form.get("camera_key", "")
+    with connect(DB_PATH) as db:
+        row = db.execute(
+            """SELECT c.name,sd.probe_width AS actual_width,sd.probe_height AS actual_height,
+                      sd.probe_status,
+                      csc.configured_width,csc.configured_height
+               FROM cameras c
+               JOIN stream_diagnostics sd ON sd.camera_key=c.camera_key
+               LEFT JOIN camera_stream_config csc ON csc.camera_key=c.camera_key
+               WHERE c.camera_key=?""",
+            (camera_key,),
+        ).fetchone()
+    if not row or row["probe_status"] != "ok" or not row["actual_width"] or not row["actual_height"]:
+        flash(t("resolution_apply_unverified"), "error")
+        return redirect(url_for("diagnostics"))
+    if (row["configured_width"], row["configured_height"]) == (
+        row["actual_width"], row["actual_height"],
+    ):
+        flash(t("resolution_already_matches"), "ok")
+        return redirect(url_for("diagnostics"))
+    try:
+        width, height = update_monitor_resolution(
+            DB_PATH, camera_key, int(row["actual_width"]), int(row["actual_height"]),
+        )
+    except requests.RequestException as error:
+        status_code = error.response.status_code if error.response is not None else None
+        detail = f"HTTP {status_code}" if status_code else type(error).__name__
+        flash(t("resolution_apply_failed", error=detail), "error")
+    except (ValueError, RuntimeError) as error:
+        flash(t("resolution_apply_failed", error=str(error)[:300]), "error")
+    else:
+        flash(t("resolution_applied", camera=row["name"], width=width, height=height), "ok")
+    return redirect(url_for("diagnostics"))
 
 
 @app.get("/updates/status")

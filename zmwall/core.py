@@ -199,7 +199,13 @@ CREATE TABLE IF NOT EXISTS stream_diagnostics (
   gpu_compatible INTEGER,
   status TEXT NOT NULL,
   error TEXT,
-  checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  probe_status TEXT,
+  probe_error TEXT,
+  probe_width INTEGER,
+  probe_height INTEGER,
+  probe_checked_at TEXT,
+  metadata_source TEXT
 );
 """
 
@@ -227,6 +233,24 @@ def init_db(db_path: str) -> None:
         screen_columns = {row["name"] for row in db.execute("PRAGMA table_info(screens)")}
         if "rotation_seconds" not in screen_columns:
             db.execute("ALTER TABLE screens ADD COLUMN rotation_seconds INTEGER NOT NULL DEFAULT 30")
+        diagnostic_columns = {
+            row["name"] for row in db.execute("PRAGMA table_info(stream_diagnostics)")
+        }
+        diagnostic_upgrades = {
+            "probe_status": "TEXT", "probe_error": "TEXT",
+            "probe_width": "INTEGER", "probe_height": "INTEGER",
+            "probe_checked_at": "TEXT", "metadata_source": "TEXT",
+        }
+        for name, sql_type in diagnostic_upgrades.items():
+            if name not in diagnostic_columns:
+                db.execute(f"ALTER TABLE stream_diagnostics ADD COLUMN {name} {sql_type}")
+        # Existing rows predate the separation and remain useful as cached
+        # metadata, but are deliberately not promoted to a verified probe.
+        # A new all-camera check is required before write actions are offered.
+        db.execute(
+            """UPDATE stream_diagnostics
+               SET metadata_source=COALESCE(metadata_source,'legacy')"""
+        )
         # Upgrade old one-camera-per-tile layouts without losing assignments.
         # UNIQUE(camera_key) intentionally keeps the first assignment if an old
         # configuration used the same camera in several positions.
@@ -277,6 +301,25 @@ def api_url(base_url: str, suffix: str) -> str:
     return f"{base_url.rstrip('/')}/api/{suffix.lstrip('/')}"
 
 
+def _zone_minder_session(site: sqlite3.Row) -> tuple[requests.Session, dict[str, str]]:
+    """Authenticate once and return a configured API session and parameters."""
+    session = requests.Session()
+    session.verify = bool(site["verify_tls"])
+    login = session.post(
+        api_url(site["base_url"], "host/login.json"),
+        data={"user": site["username"], "pass": site["password"]}, timeout=15,
+    )
+    login.raise_for_status()
+    auth = login.json()
+    params: dict[str, str] = {}
+    if auth.get("access_token"):
+        params["token"] = auth["access_token"]
+    elif auth.get("credentials"):
+        key, value = auth["credentials"].split("=", 1)
+        params[key] = value
+    return session, params
+
+
 def resolve_ipv4(hostname: str) -> str | None:
     try:
         return socket.gethostbyname(hostname)
@@ -306,21 +349,8 @@ def sync_site(db_path: str, site_id: int) -> tuple[int, str | None]:
     if not site:
         raise ValueError("ZoneMinder-Verbindung nicht gefunden")
 
-    session = requests.Session()
-    session.verify = bool(site["verify_tls"])
     try:
-        login = session.post(
-            api_url(site["base_url"], "host/login.json"),
-            data={"user": site["username"], "pass": site["password"]}, timeout=15,
-        )
-        login.raise_for_status()
-        auth = login.json()
-        params: dict[str, str] = {}
-        if auth.get("access_token"):
-            params["token"] = auth["access_token"]
-        elif auth.get("credentials"):
-            key, value = auth["credentials"].split("=", 1)
-            params[key] = value
+        session, params = _zone_minder_session(site)
 
         monitors_r = session.get(api_url(site["base_url"], "monitors.json"), params=params, timeout=20)
         monitors_r.raise_for_status()
@@ -404,6 +434,54 @@ def sync_site(db_path: str, site_id: int) -> tuple[int, str | None]:
         with connect(db_path) as db:
             db.execute("UPDATE sites SET last_error=? WHERE id=?", (message[:500], site_id))
         return 0, message
+
+
+def update_monitor_resolution(
+    db_path: str, camera_key: str, width: int, height: int,
+) -> tuple[int, int]:
+    """Update and verify one ZoneMinder monitor's configured stream dimensions."""
+    if not (16 <= int(width) <= 16384 and 16 <= int(height) <= 16384):
+        raise ValueError("Ungültige Streamauflösung")
+    with connect(db_path) as db:
+        row = db.execute(
+            """SELECT c.zm_id,c.camera_key,s.* FROM cameras c
+               JOIN sites s ON s.id=c.site_id WHERE c.camera_key=?""",
+            (camera_key,),
+        ).fetchone()
+    if not row:
+        raise ValueError("Kamera nicht gefunden")
+
+    session, params = _zone_minder_session(row)
+    endpoint = api_url(row["base_url"], f"monitors/{row['zm_id']}.json")
+    response = session.put(
+        endpoint, params=params,
+        data={"Monitor[Width]": str(int(width)), "Monitor[Height]": str(int(height))},
+        timeout=20,
+    )
+    response.raise_for_status()
+    verification = session.get(endpoint, params=params, timeout=20)
+    verification.raise_for_status()
+    payload = verification.json()
+    item = payload.get("monitor", payload.get("Monitor", payload))
+    if isinstance(item, dict) and "Monitor" in item:
+        item = item["Monitor"]
+    verified = (int(item.get("Width", 0)), int(item.get("Height", 0)))
+    if verified != (int(width), int(height)):
+        raise RuntimeError(
+            f"ZoneMinder meldet nach der Änderung weiterhin {verified[0]}×{verified[1]}"
+        )
+    with connect(db_path) as db:
+        db.execute(
+            """INSERT INTO camera_stream_config(
+                 camera_key,configured_width,configured_height,updated_at
+               ) VALUES(?,?,?,CURRENT_TIMESTAMP)
+               ON CONFLICT(camera_key) DO UPDATE SET
+                 configured_width=excluded.configured_width,
+                 configured_height=excluded.configured_height,
+                 updated_at=CURRENT_TIMESTAMP""",
+            (camera_key, *verified),
+        )
+    return verified
 
 
 def detect_outputs() -> list[dict[str, int | str]]:
@@ -632,15 +710,16 @@ class PlayerManager:
                 db.execute(
                     """INSERT INTO stream_diagnostics(
                          camera_key,actual_width,actual_height,codec,profile,fps,
-                         gpu_compatible,status,error,checked_at
-                       ) VALUES(?,?,?,?,?,?,?,'ok',NULL,CURRENT_TIMESTAMP)
+                         gpu_compatible,status,error,checked_at,metadata_source
+                       ) VALUES(?,?,?,?,?,?,?,'ok',NULL,CURRENT_TIMESTAMP,'runtime')
                        ON CONFLICT(camera_key) DO UPDATE SET
                          actual_width=excluded.actual_width,actual_height=excluded.actual_height,
                          codec=COALESCE(excluded.codec,stream_diagnostics.codec),
                          profile=COALESCE(excluded.profile,stream_diagnostics.profile),
                          fps=COALESCE(excluded.fps,stream_diagnostics.fps),
-                         gpu_compatible=COALESCE(excluded.gpu_compatible,stream_diagnostics.gpu_compatible),
-                         status='ok',error=NULL,checked_at=CURRENT_TIMESTAMP""",
+                         gpu_compatible=excluded.gpu_compatible,
+                         status='ok',error=NULL,checked_at=CURRENT_TIMESTAMP,
+                         metadata_source='runtime'""",
                     (
                         stream_key, int(width), int(height), track.get("codec"),
                         track.get("codec-profile"), track.get("demux-fps"),

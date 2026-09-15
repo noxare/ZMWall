@@ -8,6 +8,31 @@ Dieses Changelog dokumentiert die Entwicklung von ZM Wall mit Funktionen, Betrie
 
 - Noch keine Änderungen.
 
+## 0.3.0-beta.12 – 2026-09-15
+
+### Behoben
+
+- Die Sammeldiagnose vermischte Auflösungsvergleich, Erreichbarkeit und Hardwaredecoder-Ergebnis zu einem Status. Eine frühere VAAPI-Ablehnung oder ausgelastete GPU konnte deshalb als rote „GPU-Grenze“ neben einer tatsächlich passenden Auflösung stehen.
+- Die Sammelprüfung ermittelt Metadaten nun nacheinander mit Software-Decoding. GPU-Eignung wird ausschließlich durch die detaillierte Einzelprüfung beziehungsweise den tatsächlich laufenden Player bewertet.
+- Fehlgeschlagene Prüfungen behalten die letzten zuverlässig erkannten Streammetadaten und speichern ihren eigenen Prüfstatus mit einer unterscheidbaren Ursache wie Zeitüberschreitung, Anmeldung, Verbindung, fehlender Stream oder Decoderfehler.
+- `0.000000 fps` wird nicht mehr als reale Bildrate angezeigt.
+- Der TSV-Export fasst mehrzeilige Kamerafelder korrekt in einer Zeile zusammen und lässt Aktionsschaltflächen weg.
+
+### Hinzugefügt
+
+- ZoneMinder-Status, RTSP-Prüfstatus und Auflösungsvergleich besitzen in der Sammelübersicht getrennte Spalten.
+- Jede Kamera kann aus der Übersicht direkt der ausführlichen GPU-Diagnose übergeben werden.
+- Bei einer durch eine erfolgreiche Streamprüfung belegten Auflösungsabweichung kann `Monitor.Width`/`Monitor.Height` nach ausdrücklicher Bestätigung über die ZoneMinder-API korrigiert werden. ZM Wall liest die Kamera anschließend erneut ab und übernimmt den lokalen Wert erst nach erfolgreicher Verifikation.
+- Bestehende Datenbanken werden ohne Verlust auf getrennte Prüf- und Metadatenfelder migriert.
+
+### Sicherheit
+
+- Die normale ZoneMinder-Synchronisierung verändert Auflösungen nicht automatisch. API-Fehlermeldungen in der Oberfläche enthalten keine Authentifizierungstoken.
+
+### Tests
+
+- Regressionstests für getrennte Diagnosezustände, unbekannte Null-Bildrate, Fehlerklassifizierung, Datenbankmigration und den verifizierten ZoneMinder-Schreibweg.
+
 ## 0.3.0-beta.11 – 2026-09-15
 
 ### Behoben

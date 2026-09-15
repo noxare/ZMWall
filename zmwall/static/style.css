@@ -103,7 +103,7 @@ summary { cursor: pointer; font-weight: 700; }
 .stream-decoder.preloading { border-style: dashed; }
 .stream-badges { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
 .stream-resolution { flex: 0 0 auto; padding: 2px 6px; border: 1px solid #3b4c59; border-radius: 999px; color: var(--muted); font-size: 10px; font-weight: 600; white-space: nowrap; }
-.stream-resolution.match, .resolution-state.match { border-color: #1b755e; background: #10251f; color: #9cf3d8; }
+.stream-resolution.match, .resolution-state.match, .resolution-state.ok { border-color: #1b755e; background: #10251f; color: #9cf3d8; }
 .stream-resolution.mismatch, .resolution-state.mismatch { border-color: #806a28; background: #29230f; color: #f2c94c; }
 .stream-resolution.gpu-limit, .resolution-state.gpu-limit,
 .resolution-state.error { border-color: #8b353a; background: #35181b; color: #ff9b9b; }
@@ -140,6 +140,9 @@ summary { cursor: pointer; font-weight: 700; }
 .diagnostic-table td:first-child { min-width: 220px; white-space: normal; }
 .diagnostic-table td:first-child small { display: block; }
 .resolution-state { display: inline-block; padding: 2px 7px; border: 1px solid #3b4c59; border-radius: 999px; color: var(--muted); font-size: 10px; }
+.diagnostic-table .inline-form { margin: 0; }
+.diagnostic-table td:last-child { display: flex; gap: 5px; }
+.diagnostic-table button.compact { padding: 5px 8px; font-size: 10px; }
 .batch-legend { justify-content: flex-start; font-size: 10px; }
 
 @media (max-width: 980px) {

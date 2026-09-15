@@ -56,13 +56,12 @@ def probe_command(ignore_profile_check: bool = False) -> list[str]:
 
 
 def summary_probe_command() -> list[str]:
-    """Build a short, low-impact probe for the all-camera overview."""
+    """Build a short software probe for reachability and stream metadata."""
     return [
         "mpv", "--no-config", "--no-audio", "--vo=null",
-        "--hwdec=auto-copy", "--hwdec-software-fallback=yes",
-        "--vd-lavc-check-hw-profile=no", "--frames=1", "--profile=low-latency",
+        "--hwdec=no", "--frames=1", "--profile=low-latency",
         "--demuxer-lavf-o=rtsp_transport=tcp,rw_timeout=10000000",
-        "--msg-level=all=no,vd=trace,ffmpeg/video=debug", "--playlist=-",
+        "--msg-level=all=warn,vd=trace,ffmpeg/video=debug", "--playlist=-",
     ]
 
 
@@ -106,30 +105,44 @@ def probe_stream_summary(row: Any) -> dict[str, Any]:
     ), output)
     codec = _first_match((r"Selected decoder:\s*([^\s]+)",), output)
     profile = _first_match((r"Codec profile:\s*([^\r\n(]+)",), output)
-    fps = _first_match((r"Container reported FPS:\s*([0-9.]+)",), output)
-    # mpv may reject one auto-selected hardware path and successfully use a
-    # later one. Evaluate the last decisive size-limit/success event instead
-    # of letting an earlier backend rejection override a later GPU success.
-    size_limit_position = output.rfind("Hardware does not support image size")
-    hardware_used_position = output.rfind("Using hardware decoding")
-    if hardware_used_position > size_limit_position:
-        gpu_compatible = 1
-    elif size_limit_position >= 0:
-        gpu_compatible = 0
+    fps_match = _first_match((r"Container reported FPS:\s*([0-9.]+)",), output)
+    fps_value = fps_match.group(1) if fps_match else None
+    if fps_value and float(fps_value) <= 0:
+        fps_value = None
+    lowered = output.lower()
+    if timed_out:
+        status, error = "timeout", "timeout"
+    elif size:
+        status, error = "ok", None
+    elif any(value in lowered for value in ("401 unauthorized", "403 forbidden", "authentication failed")):
+        status, error = "authentication_failed", "authentication_failed"
+    elif "404 not found" in lowered:
+        status, error = "not_found", "not_found"
+    elif any(value in lowered for value in (
+        "connection refused", "network is unreachable", "no route to host",
+        "failed to resolve", "name or service not known", "connection timed out",
+        "couldn't open", "could not open",
+    )):
+        status, error = "connection_failed", "connection_failed"
+    elif any(value in lowered for value in ("error while decoding", "failed to decode", "decoder failed")):
+        status, error = "decoder_failed", "decoder_failed"
+    elif process.returncode:
+        status, error = "process_error", f"mpv_exit_{process.returncode}"
     else:
-        gpu_compatible = None
+        status, error = "no_metadata", "no_video_metadata"
     result: dict[str, Any] = {
         "camera_key": row["camera_key"],
         "actual_width": int(size.group(1)) if size else None,
         "actual_height": int(size.group(2)) if size else None,
         "codec": codec.group(1) if codec else None,
         "profile": profile.group(1).strip() if profile else None,
-        "fps": fps.group(1) if fps else None,
-        # Only report a definite incompatibility for the explicit decoder-size
-        # rejection. Other failures can be transient or profile-specific.
-        "gpu_compatible": gpu_compatible,
-        "status": "ok" if size else ("timeout" if timed_out else "error"),
-        "error": None if size else ("timeout" if timed_out else "no_metadata"),
+        "fps": fps_value,
+        # GPU suitability is intentionally not inferred here. It depends on
+        # hardware, driver, decoder capacity and profile and belongs to the
+        # detailed diagnostic or the actual running player's CPU/GPU status.
+        "gpu_compatible": None,
+        "status": status,
+        "error": error,
     }
     return result
 
@@ -138,23 +151,34 @@ def save_stream_summary(db_path: str, result: dict[str, Any]) -> None:
     with connect(db_path) as db:
         db.execute(
             """INSERT INTO stream_diagnostics(
-                 camera_key,actual_width,actual_height,codec,profile,fps,gpu_compatible,status,error,checked_at
-               ) VALUES(?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                 camera_key,actual_width,actual_height,codec,profile,fps,gpu_compatible,
+                 status,error,checked_at,probe_status,probe_error,probe_width,probe_height,
+                 probe_checked_at,metadata_source
+               ) VALUES(?,?,?,?,?,?,NULL,?,?,CURRENT_TIMESTAMP,?,?,?,?,CURRENT_TIMESTAMP,'batch')
                ON CONFLICT(camera_key) DO UPDATE SET
-                 actual_width=excluded.actual_width,actual_height=excluded.actual_height,
-                 codec=excluded.codec,profile=excluded.profile,fps=excluded.fps,
-                 gpu_compatible=excluded.gpu_compatible,status=excluded.status,error=excluded.error,
-                 checked_at=CURRENT_TIMESTAMP""",
+                 actual_width=CASE WHEN excluded.probe_status='ok' THEN excluded.actual_width ELSE stream_diagnostics.actual_width END,
+                 actual_height=CASE WHEN excluded.probe_status='ok' THEN excluded.actual_height ELSE stream_diagnostics.actual_height END,
+                 codec=CASE WHEN excluded.probe_status='ok' THEN excluded.codec ELSE stream_diagnostics.codec END,
+                 profile=CASE WHEN excluded.probe_status='ok' THEN excluded.profile ELSE stream_diagnostics.profile END,
+                 fps=CASE WHEN excluded.probe_status='ok' THEN excluded.fps ELSE stream_diagnostics.fps END,
+                 gpu_compatible=NULL,status=excluded.status,error=excluded.error,
+                 checked_at=CASE WHEN excluded.probe_status='ok' THEN CURRENT_TIMESTAMP ELSE stream_diagnostics.checked_at END,
+                 probe_status=excluded.probe_status,probe_error=excluded.probe_error,
+                 probe_width=CASE WHEN excluded.probe_status='ok' THEN excluded.probe_width ELSE stream_diagnostics.probe_width END,
+                 probe_height=CASE WHEN excluded.probe_status='ok' THEN excluded.probe_height ELSE stream_diagnostics.probe_height END,
+                 probe_checked_at=CURRENT_TIMESTAMP,
+                 metadata_source=CASE WHEN excluded.probe_status='ok' THEN 'batch' ELSE stream_diagnostics.metadata_source END""",
             (
                 result["camera_key"], result.get("actual_width"), result.get("actual_height"),
                 result.get("codec"), result.get("profile"), result.get("fps"),
-                result.get("gpu_compatible"), result["status"], result.get("error"),
+                result["status"], result.get("error"), result["status"], result.get("error"),
+                result.get("actual_width"), result.get("actual_height"),
             ),
         )
 
 
 def diagnose_all_cameras(
-    db_path: str, progress: Any | None = None, max_workers: int = 2,
+    db_path: str, progress: Any | None = None, max_workers: int = 1,
 ) -> list[dict[str, Any]]:
     """Probe every enabled ZoneMinder restream with bounded concurrency."""
     with connect(db_path) as db:

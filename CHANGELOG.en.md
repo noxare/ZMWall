@@ -8,6 +8,31 @@ This changelog documents ZM Wall's features, operational flows, technical decisi
 
 - No changes yet.
 
+## 0.3.0-beta.12 – 2026-09-15
+
+### Fixed
+
+- The all-camera diagnostic previously combined resolution comparison, reachability, and hardware-decoder outcome into one status. An earlier VAAPI rejection or exhausted GPU could therefore appear as a red “GPU limit” next to a resolution that actually matched.
+- The batch probe now reads metadata sequentially using software decoding. GPU suitability is assessed only by the detailed single-stream test or the decoder actually used by the running player.
+- Failed probes retain the last reliable stream metadata and store a separate probe state with a distinct reason such as timeout, authentication, connection, missing stream, or decoder failure.
+- `0.000000 fps` is no longer presented as a real frame rate.
+- The TSV export keeps multiline camera fields on one record and omits action-button text.
+
+### Added
+
+- ZoneMinder status, RTSP probe status, and resolution comparison now have separate columns in the all-camera overview.
+- Each camera can be sent directly from the overview to the detailed GPU diagnostic.
+- When a successful stream probe proves a resolution mismatch, `Monitor.Width`/`Monitor.Height` can be corrected through the ZoneMinder API after explicit confirmation. ZM Wall reads the monitor back and updates its local value only after successful verification.
+- Existing databases are migrated without data loss to separate probe-state and metadata fields.
+
+### Security
+
+- Normal ZoneMinder synchronization never changes resolutions automatically. API errors shown in the web interface do not expose authentication tokens.
+
+### Tests
+
+- Regression coverage for separated diagnostic states, unknown zero FPS, failure classification, database migration, and the verified ZoneMinder write path.
+
 ## 0.3.0-beta.11 – 2026-09-15
 
 ### Fixed

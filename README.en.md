@@ -4,7 +4,7 @@
 
 [Detailed changelog](CHANGELOG.en.md)
 
-Current development version: **0.3.0-beta.9**
+Current development version: **0.3.0-beta.12**
 
 ZM Wall turns a lightweight Debian device into a network-managed RTSP video wall for ZoneMinder. Each physical display can use its own grid and camera assignment. ZM Wall uses ZoneMinder's integrated RTSP restream feature: it does not open another direct connection to each camera. Instead, the streams already provided by ZoneMinder are rendered with `mpv`, while the web interface is used for administration.
 
@@ -129,7 +129,9 @@ On Intel systems, ZM Wall can use a confirmed VAAPI copy-back fallback with the 
 
 The area below **Display active** shows the display device's current network paths live. When Ethernet and Wi-Fi are connected at the same time, both interfaces are listed. Stream diagnostics add the IPv4 address, gateway, link speed, default route, and—when available—Wi-Fi SSID, signal strength, and TX bitrate. Virtual Docker interfaces without a default route are hidden.
 
-In addition to a detailed single-stream test, the diagnostics page provides **Test all cameras**. This all-camera diagnostic uses at most two concurrent connections to inspect the restreams actually delivered by ZoneMinder. It compares their resolution with the monitor resolution stored by ZoneMinder and then displays the result as a color-coded badge on every grid camera. The summary can be downloaded without RTSP addresses or credentials.
+In addition to a detailed per-stream GPU test, the diagnostics page provides **Test all cameras**. This all-camera diagnostic inspects the restreams delivered by ZoneMinder sequentially and without a hardware decoder. Reachability, ZoneMinder status, stream metadata, and the resolution comparison are displayed separately. An exhausted or incompatible GPU can therefore no longer appear as a supposed resolution error. The TSV summary excludes RTSP addresses, credentials, and action-button text.
+
+When a successfully probed stream resolution differs from `Monitor.Width` and `Monitor.Height`, the detected dimensions can be explicitly confirmed for that camera and applied through the ZoneMinder API. ZM Wall reads the monitor back and updates its local configuration only after ZoneMinder verifies the change. Normal synchronization deliberately performs no automatic bulk edits; the configured ZoneMinder user needs edit permission for this action.
 
 Important paths:
 

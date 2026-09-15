@@ -4,7 +4,7 @@
 
 [Detaillierter Änderungsverlauf](CHANGELOG.md)
 
-Aktueller Entwicklungsstand: **0.3.0-beta.9**
+Aktueller Entwicklungsstand: **0.3.0-beta.12**
 
 ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigurierbare RTSP-Videowand für ZoneMinder. Jeder physische Monitor kann ein eigenes Raster und eine eigene Kamerabelegung erhalten. ZM Wall verwendet die integrierte RTSP-Restream-Funktion von ZoneMinder: Die Streams werden nicht zusätzlich direkt von den Kameras abgerufen, sondern von ZoneMinder bereitgestellt und mit `mpv` wiedergegeben. Die Weboberfläche dient zur Verwaltung.
 
@@ -149,7 +149,9 @@ Jede Grid-Position kann eine oder mehrere Kameras enthalten. Bei mehreren Kamera
 
 Unter **Anzeige aktiv** wird die aktuelle Netzwerkanbindung des Anzeigerechners live dargestellt. Bei gleichzeitig verbundenem LAN und WLAN erscheinen beide Interfaces. Die Streamdiagnose ergänzt IPv4-Adresse, Gateway, Linkgeschwindigkeit, Standardroute und – sofern verfügbar – WLAN-SSID, Signalstärke und TX-Bitrate. Virtuelle Docker-Interfaces ohne Standardroute werden ausgeblendet.
 
-Auf der Diagnoseseite kann neben einer detaillierten Einzelprüfung auch **Alle Kameras prüfen** gestartet werden. Diese Sammeldiagnose untersucht mit höchstens zwei parallelen Verbindungen die tatsächlich von ZoneMinder gelieferten Restreams. Sie vergleicht deren Auflösung mit der in ZoneMinder gespeicherten Monitorauflösung und zeigt das Ergebnis anschließend als farbcodiertes Badge an jeder Kamera im Grid. Die Übersicht lässt sich ohne RTSP-Adressen oder Zugangsdaten herunterladen.
+Auf der Diagnoseseite kann neben einer detaillierten GPU-Einzelprüfung auch **Alle Kameras prüfen** gestartet werden. Diese Sammeldiagnose untersucht die von ZoneMinder gelieferten Restreams nacheinander und ohne Hardwaredecoder. Erreichbarkeit, ZoneMinder-Status, Streammetadaten und Auflösungsvergleich werden getrennt angezeigt. Dadurch kann eine ausgelastete oder inkompatible GPU nicht mehr als vermeintlicher Auflösungsfehler erscheinen. Die Übersicht lässt sich ohne RTSP-Adressen, Zugangsdaten oder Schaltflächentexte als TSV herunterladen.
+
+Weicht die erfolgreich geprüfte Streamauflösung von `Monitor.Width` und `Monitor.Height` ab, kann die erkannte Auflösung für genau diese Kamera ausdrücklich bestätigt und über die ZoneMinder-API übernommen werden. ZM Wall liest den Monitor danach erneut ein und speichert den Wert lokal nur, wenn ZoneMinder die Änderung bestätigt. Eine automatische Massenänderung während der normalen Synchronisierung findet bewusst nicht statt; der verwendete ZoneMinder-Benutzer benötigt für diese Aktion Bearbeitungsrechte.
 
 Die wichtigsten Dateien:
 

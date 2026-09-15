@@ -88,7 +88,10 @@
     const table = document.querySelector("[data-batch-table]");
     if (!table) return;
     const lines = [...table.querySelectorAll("tr")].map((row) =>
-      [...row.querySelectorAll("th,td")].map((cell) => cell.innerText.trim().replaceAll("\t", " ")).join("\t")
+      [...row.querySelectorAll("th:not([data-export-ignore]),td:not([data-export-ignore])")].map((cell) => {
+        const value = cell.innerText.trim().replace(/\s+/g, " ");
+        return `"${value.replaceAll('"', '""')}"`;
+      }).join("\t")
     );
     const blob = new Blob([lines.join("\n")], { type: "text/tab-separated-values;charset=utf-8" });
     const link = document.createElement("a");

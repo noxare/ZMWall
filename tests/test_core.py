@@ -148,6 +148,72 @@ def test_old_single_camera_tiles_are_migrated():
         assert migrated["position"] == 0
 
 
+def test_old_stream_metadata_is_not_promoted_to_verified_probe(tmp_path):
+    db_path = str(tmp_path / "legacy-diagnostics.db")
+    init_db(db_path)
+    with connect(db_path) as db:
+        site_id = db.execute(
+            "INSERT INTO sites(name,base_url,username,password) VALUES('Test','https://zm','u','p')"
+        ).lastrowid
+        db.execute(
+            "INSERT INTO cameras(camera_key,site_id,zm_id,name,rtsp_host) VALUES('1:4',?,?,?,?)",
+            (site_id, "4", "Tor", "zm"),
+        )
+        db.execute(
+            "INSERT INTO stream_diagnostics(camera_key,status,error) VALUES('1:4','timeout','timeout')"
+        )
+    init_db(db_path)
+    with connect(db_path) as db:
+        row = db.execute("SELECT * FROM stream_diagnostics WHERE camera_key='1:4'").fetchone()
+    assert row["probe_status"] is None
+    assert row["probe_error"] is None
+    assert row["probe_checked_at"] is None
+    assert row["metadata_source"] == "legacy"
+
+
+def test_zoneminder_resolution_update_is_verified_before_local_save(monkeypatch, tmp_path):
+    db_path = str(tmp_path / "zm-update.db")
+    init_db(db_path)
+    with connect(db_path) as db:
+        site_id = db.execute(
+            "INSERT INTO sites(name,base_url,username,password) VALUES('Test','https://zm/zm','u','p')"
+        ).lastrowid
+        camera_key = f"{site_id}:4"
+        db.execute(
+            "INSERT INTO cameras(camera_key,site_id,zm_id,name,rtsp_host) VALUES(?,?,?,?,?)",
+            (camera_key, site_id, "4", "Tor", "zm"),
+        )
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"monitor": {"Monitor": {"Width": "640", "Height": "360"}}}
+
+    class Session:
+        def __init__(self):
+            self.put_data = None
+
+        def put(self, _url, params=None, data=None, timeout=None):
+            self.put_data = data
+            return Response()
+
+        def get(self, _url, params=None, timeout=None):
+            return Response()
+
+    session = Session()
+    monkeypatch.setattr(core, "_zone_minder_session", lambda _site: (session, {"token": "safe"}))
+    assert core.update_monitor_resolution(db_path, camera_key, 640, 360) == (640, 360)
+    assert session.put_data == {"Monitor[Width]": "640", "Monitor[Height]": "360"}
+    with connect(db_path) as db:
+        saved = db.execute(
+            "SELECT configured_width,configured_height FROM camera_stream_config WHERE camera_key=?",
+            (camera_key,),
+        ).fetchone()
+    assert (saved["configured_width"], saved["configured_height"]) == (640, 360)
+
+
 def test_player_manager_prepares_current_and_upcoming_stream(monkeypatch):
     with tempfile.TemporaryDirectory() as directory:
         db_path = str(Path(directory) / "rotation.db")

@@ -18,14 +18,14 @@ def test_forced_profile_probe_only_disables_profile_check_for_diagnostic():
     assert "--hwdec-software-fallback=no" in probe_command(ignore_profile_check=True)
 
 
-def test_summary_probe_reads_one_frame_and_keeps_software_fallback():
+def test_summary_probe_reads_one_frame_without_testing_gpu_capacity():
     command = summary_probe_command()
     assert "--frames=1" in command
-    assert "--hwdec=auto-copy" in command
-    assert "--hwdec-software-fallback=yes" in command
+    assert "--hwdec=no" in command
+    assert not any(option.startswith("--hwdec=auto") for option in command)
 
 
-def test_summary_probe_detects_resolution_and_explicit_gpu_size_limit(monkeypatch):
+def test_summary_probe_detects_resolution_without_inferring_gpu_limit(monkeypatch):
     class Process:
         returncode = 0
 
@@ -49,11 +49,11 @@ def test_summary_probe_detects_resolution_and_explicit_gpu_size_limit(monkeypatc
     assert result["codec"] == "h264"
     assert result["profile"] == "High"
     assert result["fps"] == "15.000000"
-    assert result["gpu_compatible"] == 0
+    assert result["gpu_compatible"] is None
     assert result["status"] == "ok"
 
 
-def test_summary_probe_prefers_later_hardware_success_over_size_rejection(monkeypatch):
+def test_summary_probe_does_not_mix_old_hardware_messages_into_resolution(monkeypatch):
     class Process:
         returncode = 0
 
@@ -73,6 +73,37 @@ def test_summary_probe_prefers_later_hardware_success_over_size_rejection(monkey
     })
     assert result["actual_width"] == 720
     assert result["actual_height"] == 576
-    assert result["gpu_compatible"] == 1
+    assert result["gpu_compatible"] is None
     assert result["status"] == "ok"
 
+
+def test_summary_probe_treats_zero_container_fps_as_unknown(monkeypatch):
+    class Process:
+        returncode = 0
+
+        def communicate(self, _input=None, timeout=None):
+            return "[vd] Container reported FPS: 0.000000\n[vd] Decoder format: 640x360\n", None
+
+    monkeypatch.setattr(diagnostics, "render_rtsp", lambda row, _camera: "rtsp://secret")
+    monkeypatch.setattr(diagnostics.subprocess, "Popen", lambda *args, **kwargs: Process())
+    result = probe_stream_summary({
+        "camera_key": "1:65", "username": "admin", "password": "secret",
+    })
+    assert result["fps"] is None
+    assert result["status"] == "ok"
+
+
+def test_summary_probe_reports_connection_failure_reason(monkeypatch):
+    class Process:
+        returncode = 2
+
+        def communicate(self, _input=None, timeout=None):
+            return "Failed to open rtsp://secret: Connection refused\n", None
+
+    monkeypatch.setattr(diagnostics, "render_rtsp", lambda row, _camera: "rtsp://secret")
+    monkeypatch.setattr(diagnostics.subprocess, "Popen", lambda *args, **kwargs: Process())
+    result = probe_stream_summary({
+        "camera_key": "1:66", "username": "admin", "password": "secret",
+    })
+    assert result["status"] == "connection_failed"
+    assert result["error"] == "connection_failed"

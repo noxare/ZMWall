@@ -22,6 +22,9 @@
   </form>
 </header>
 <main class="diagnostics-page">
+  {% for category, message in get_flashed_messages(with_categories=true) %}
+    <div class="flash {{ category }}">{{ message }}</div>
+  {% endfor %}
   <section class="panel diagnostics-panel">
     <div><h2>{{ t('check_stream') }}</h2><p>{{ t('diagnostics_help') }}</p></div>
     <form method="post" class="diagnostics-form" data-diagnostics-form>
@@ -54,25 +57,39 @@
     <div class="diagnostic-table-wrap">
       <table class="diagnostic-table" data-batch-table>
         <thead><tr>
-          <th>{{ t('camera') }}</th><th>{{ t('configured_resolution') }}</th>
+          <th>{{ t('camera') }}</th><th>{{ t('zm_status') }}</th><th>{{ t('probe_status') }}</th>
+          <th>{{ t('configured_resolution') }}</th>
           <th>{{ t('actual_resolution') }}</th><th>{{ t('stream_format') }}</th>
-          <th>{{ t('assessment') }}</th><th>{{ t('last_checked') }}</th>
+          <th>{{ t('assessment') }}</th><th>{{ t('last_checked') }}</th><th data-export-ignore>{{ t('actions') }}</th>
         </tr></thead>
         <tbody>
         {% for camera in batch_rows %}
           <tr>
             <td><strong>{{ camera.name }}</strong><small>ID {{ camera.zm_id }} · {{ camera.server_name or t('local_server') }}</small></td>
+            <td>{{ camera.zm_status or t('unknown') }}</td>
+            <td><span class="resolution-state {{ camera.probe_class }}" title="{{ camera.probe_error or '' }}">{{ camera.probe_label }}</span></td>
             <td>{{ camera.configured_width ~ '×' ~ camera.configured_height if camera.configured_width and camera.configured_height else '—' }}</td>
             <td>{{ camera.resolution_label }}</td>
             <td>{{ ((camera.codec or '—') ~ (' · ' ~ camera.profile if camera.profile else '') ~ (' · ' ~ camera.fps ~ ' fps' if camera.fps else '')) }}</td>
             <td><span class="resolution-state {{ camera.resolution_class }}">
               {% if camera.resolution_class == 'match' %}{{ t('resolution_match') }}
               {% elif camera.resolution_class == 'mismatch' %}{{ t('resolution_mismatch') }}
-              {% elif camera.resolution_class == 'gpu-limit' %}{{ t('resolution_gpu_limit') }}
-              {% elif camera.resolution_class == 'error' %}{{ t('resolution_error') }}
               {% else %}{{ t('resolution_unchecked') }}{% endif %}
             </span></td>
-            <td>{{ camera.checked_at or '—' }}</td>
+            <td>{{ camera.probe_checked_at or '—' }}</td>
+            <td data-export-ignore>
+              <form method="post" action="{{ url_for('diagnostics') }}" class="inline-form">
+                <input type="hidden" name="camera_key" value="{{ camera.camera_key }}">
+                <button type="submit" class="secondary compact">{{ t('run_single_diagnostic') }}</button>
+              </form>
+              {% if camera.can_apply_resolution %}
+                <form method="post" action="{{ url_for('apply_diagnostic_resolution') }}" class="inline-form"
+                      onsubmit="return confirm({{ t('apply_resolution_confirm')|tojson }})">
+                  <input type="hidden" name="camera_key" value="{{ camera.camera_key }}">
+                  <button type="submit" class="secondary compact">{{ t('apply_resolution') }}</button>
+                </form>
+              {% else %}—{% endif %}
+            </td>
           </tr>
         {% endfor %}
         </tbody>
@@ -81,7 +98,6 @@
     <div class="resolution-legend batch-legend" aria-label="{{ t('resolution_legend') }}">
       <span class="match">{{ t('resolution_match') }}</span>
       <span class="mismatch">{{ t('resolution_mismatch') }}</span>
-      <span class="gpu-limit">{{ t('resolution_gpu_limit') }}</span>
       <span class="unchecked">{{ t('resolution_unchecked') }}</span>
     </div>
   </section>
