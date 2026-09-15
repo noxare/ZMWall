@@ -8,6 +8,12 @@ This changelog documents ZM Wall's features, operational flows, technical decisi
 
 - No changes yet.
 
+## 0.3.0-beta.19 – 2026-09-15
+
+- Batch diagnostics now update each camera's visible stream status immediately after its probe instead of waiting for all cameras to finish.
+- **Retry RTSP repair** is now also offered when the stream probe reports **stream not found**, even if no watchdog recovery event exists yet.
+- Regression coverage for the repair action without a previous watchdog event. A total of 64 automated tests.
+
 ## 0.3.0-beta.18 – 2026-09-15
 
 ### Diagnostic admin mode

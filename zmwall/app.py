@@ -138,6 +138,9 @@ def _camera_view(row: object) -> dict[str, object]:
         "unchecked" if not probe_status else "error"
     )
     camera["probe_label"] = t(f"probe_{probe_status or 'unchecked'}")
+    camera["can_retry_rtsp"] = (
+        probe_status == "not_found" or camera.get("recovery_state") == "failed"
+    )
     camera["can_apply_resolution"] = (
         probe_status == "ok" and camera["resolution_class"] == "mismatch"
     )
@@ -426,6 +429,8 @@ def _run_batch_diagnostics() -> None:
             batch_state.update({
                 "state": "running", "completed": completed, "total": total,
                 "camera_key": result.get("camera_key"),
+                "probe_status": result.get("status"),
+                "probe_error": result.get("error"),
             })
 
     try:
@@ -454,6 +459,7 @@ def start_all_diagnostics():
         batch_state.clear()
         batch_state.update({
             "state": "running", "completed": 0, "total": total, "camera_key": None,
+            "probe_status": None, "probe_error": None,
         })
     threading.Thread(target=_run_batch_diagnostics, daemon=True).start()
     return jsonify(dict(batch_state)), 202

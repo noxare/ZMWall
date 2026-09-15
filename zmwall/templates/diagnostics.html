@@ -9,7 +9,14 @@
 </head>
 <body data-i18n-diagnostics-running="{{ t('diagnostics_running') }}" data-i18n-copied="{{ t('copied') }}"
       data-i18n-batch-running="{{ t('batch_running', completed='{completed}', total='{total}') }}"
-      data-i18n-batch-complete="{{ t('batch_complete') }}" data-i18n-batch-failed="{{ t('batch_failed') }}">
+      data-i18n-batch-complete="{{ t('batch_complete') }}" data-i18n-batch-failed="{{ t('batch_failed') }}"
+      data-i18n-probe-ok="{{ t('probe_ok') }}" data-i18n-probe-timeout="{{ t('probe_timeout') }}"
+      data-i18n-probe-authentication-failed="{{ t('probe_authentication_failed') }}"
+      data-i18n-probe-not-found="{{ t('probe_not_found') }}"
+      data-i18n-probe-connection-failed="{{ t('probe_connection_failed') }}"
+      data-i18n-probe-decoder-failed="{{ t('probe_decoder_failed') }}"
+      data-i18n-probe-process-error="{{ t('probe_process_error') }}"
+      data-i18n-probe-error="{{ t('probe_error') }}" data-i18n-probe-no-metadata="{{ t('probe_no_metadata') }}">
 <header>
   <div class="brand"><h1>{{ t('diagnostics_title') }}</h1><p>{{ version }}</p><a class="diagnostics-link" href="{{ url_for('index') }}">{{ t('back_configuration') }}</a></div>
   <form method="post" action="{{ url_for('set_language') }}" class="language-form">
@@ -71,10 +78,10 @@
         </tr></thead>
         <tbody>
         {% for camera in batch_rows %}
-          <tr>
+          <tr data-camera-key="{{ camera.camera_key }}">
             <td><strong>{{ camera.name }}</strong><small>ID {{ camera.zm_id }} · {{ camera.server_name or t('local_server') }}</small></td>
             <td>{{ camera.zm_status or t('unknown') }}</td>
-            <td><span class="resolution-state {{ camera.probe_class }}" title="{{ camera.probe_error or '' }}">{{ camera.probe_label }}</span></td>
+            <td><span class="resolution-state {{ camera.probe_class }}" title="{{ camera.probe_error or '' }}" data-probe-status>{{ camera.probe_label }}</span></td>
             <td><span class="resolution-state {{ 'error' if camera.recovery_state == 'failed' else ('ok' if camera.recovery_state == 'recovered' else 'unchecked') }}"
                       title="{{ camera.recovery_title }}">{{ camera.recovery_label }}</span>
                 {% if camera.recovery_state %}<small class="recovery-detail">{{ camera.recovery_title }}</small>{% endif %}
@@ -93,7 +100,7 @@
                 <input type="hidden" name="camera_key" value="{{ camera.camera_key }}">
                 <button type="submit" class="secondary compact">{{ t('run_single_diagnostic') }}</button>
               </form>
-              {% if camera.recovery_state == 'failed' %}
+              {% if camera.can_retry_rtsp %}
                 <form method="post" action="{{ url_for('reregister_diagnostic_rtsp') }}" class="inline-form">
                   <input type="hidden" name="camera_key" value="{{ camera.camera_key }}">
                   <button type="submit" class="secondary compact">{{ t('retry_rtsp_repair') }}</button>
@@ -106,7 +113,7 @@
                   <button type="submit" class="secondary compact">{{ t('apply_resolution') }}</button>
                 </form>
               {% endif %}
-              {% if camera.can_apply_resolution or camera.recovery_state == 'failed' %}
+              {% if camera.can_apply_resolution or camera.can_retry_rtsp %}
                 <details class="temporary-api-login">
                   <summary>{{ t('temporary_api_change') if temporary_api_username else t('temporary_api_login') }}</summary>
                   <form method="post" class="temporary-api-form">
@@ -117,7 +124,7 @@
                     <label>{{ t('temporary_password') }}
                       <input type="password" name="temporary_password" autocomplete="current-password" required>
                     </label>
-                    {% if camera.recovery_state == 'failed' %}
+                    {% if camera.can_retry_rtsp %}
                       <button type="submit" formaction="{{ url_for('reregister_diagnostic_rtsp') }}">{{ t('retry_rtsp_repair') }}</button>
                     {% endif %}
                     {% if camera.can_apply_resolution %}

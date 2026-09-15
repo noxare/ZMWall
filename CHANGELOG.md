@@ -8,6 +8,12 @@ Dieses Changelog dokumentiert die Entwicklung von ZM Wall mit Funktionen, Betrie
 
 - Noch keine Änderungen.
 
+## 0.3.0-beta.19 – 2026-09-15
+
+- Die Sammeldiagnose aktualisiert den sichtbaren Streamstatus jeder Kamera unmittelbar nach deren Prüfung und nicht erst nach Abschluss aller Kameras.
+- **RTSP erneut registrieren** erscheint jetzt auch bei einer Streamprüfung mit dem Ergebnis **Stream nicht gefunden**, selbst wenn noch kein Watchdog-Reparaturereignis vorliegt.
+- Regressionstest für den Reparaturbutton ohne vorheriges Watchdog-Ereignis. Insgesamt 64 automatisierte Tests.
+
 ## 0.3.0-beta.18 – 2026-09-15
 
 ### Diagnose-Adminmodus

@@ -193,3 +193,32 @@ def test_diagnostic_admin_credentials_are_reused_until_main_page(monkeypatch, tm
     )
     assert third.status_code == 302
     assert calls[2] == (camera_key, None, None)
+
+
+def test_not_found_probe_offers_rtsp_retry_without_watchdog_event(monkeypatch, tmp_path):
+    db_path = str(tmp_path / "not-found-action.db")
+    web = importlib.import_module("zmwall.app")
+    web.DB_PATH = db_path
+    init_db(db_path)
+    with connect(db_path) as db:
+        site_id = db.execute(
+            "INSERT INTO sites(name,base_url,username,password) VALUES(?,?,?,?)",
+            ("Test", "https://zm.invalid/zm", "user", "password"),
+        ).lastrowid
+        camera_key = f"{site_id}:63"
+        db.execute(
+            """INSERT INTO cameras(camera_key,site_id,zm_id,name,rtsp_host,rtsp_enabled)
+               VALUES(?,?,?,?,?,1)""",
+            (camera_key, site_id, "63", "Galerie", "zm.invalid"),
+        )
+        db.execute(
+            """INSERT INTO stream_diagnostics(camera_key,status,probe_status,probe_error)
+               VALUES(?,?,?,?)""",
+            (camera_key, "not_found", "not_found", "not_found"),
+        )
+    response = web.app.test_client().get(
+        "/diagnostics", headers={"Accept-Language": "de"},
+    )
+    assert response.status_code == 200
+    assert "Stream nicht gefunden" in response.text
+    assert "RTSP erneut registrieren" in response.text

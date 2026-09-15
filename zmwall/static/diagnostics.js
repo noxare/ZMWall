@@ -35,6 +35,21 @@
   const batchLabel = document.querySelector("[data-batch-progress-label]");
   let observedRunning = false;
 
+  function updateProbeStatus(state) {
+    if (!state.camera_key || !state.probe_status) return;
+    const row = [...document.querySelectorAll("[data-camera-key]")].find(
+      (candidate) => candidate.dataset.cameraKey === state.camera_key,
+    );
+    const badge = row?.querySelector("[data-probe-status]");
+    if (!badge) return;
+    const key = `i18nProbe${state.probe_status.split("_").map(
+      (part) => part.charAt(0).toUpperCase() + part.slice(1),
+    ).join("")}`;
+    badge.textContent = document.body.dataset[key] || state.probe_status;
+    badge.title = state.probe_error || "";
+    badge.className = `resolution-state ${state.probe_status === "ok" ? "ok" : "error"}`;
+  }
+
   function showBatchState(state) {
     if (!batchProgress || !batchBar || !batchLabel) return;
     if (state.state === "running") {
@@ -45,6 +60,7 @@
       batchLabel.textContent = format(document.body.dataset.i18nBatchRunning, {
         completed: state.completed || 0, total: state.total || 0,
       });
+      updateProbeStatus(state);
       if (batchButton) batchButton.disabled = true;
     } else if (state.state === "completed" && observedRunning) {
       batchProgress.hidden = false;
