@@ -34,6 +34,9 @@ def test_detailed_probe_interpretation_explains_pre_decoder_failures():
     assert interpret_probe(2, "404 Not Found") == (
         "Der angeforderte RTSP-Stream wurde nicht gefunden."
     )
+    assert interpret_probe(2, "method DESCRIBE failed: 404Stream Not Found") == (
+        "Der angeforderte RTSP-Stream wurde nicht gefunden."
+    )
     assert "Code 2" in interpret_probe(2, "")
 
 

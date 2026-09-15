@@ -77,6 +77,11 @@ def _first_match(patterns: tuple[str, ...], output: str) -> re.Match[str] | None
     return None
 
 
+def _stream_not_found(output: str) -> bool:
+    """Recognize common ZoneMinder/FFmpeg spellings, including 404Stream."""
+    return bool(re.search(r"\b404\s*(?:stream\s*)?not\s+found\b", output, re.IGNORECASE))
+
+
 def probe_stream_summary(row: Any) -> dict[str, Any]:
     """Read one frame and return credential-free stream metadata."""
     url = render_rtsp(row, row)
@@ -120,7 +125,7 @@ def probe_stream_summary(row: Any) -> dict[str, Any]:
         status, error = "ok", None
     elif any(value in lowered for value in ("401 unauthorized", "403 forbidden", "authentication failed")):
         status, error = "authentication_failed", "authentication_failed"
-    elif "404 not found" in lowered:
+    elif _stream_not_found(output):
         status, error = "not_found", "not_found"
     elif any(value in lowered for value in (
         "connection refused", "network is unreachable", "no route to host",
@@ -254,7 +259,7 @@ def interpret_probe(returncode: int, output: str) -> str:
         return "Codecprofil oder Streamparameter wurden vom Hardwaredecoder abgelehnt."
     if any(value in lowered for value in ("401 unauthorized", "403 forbidden", "authentication failed")):
         return "Die RTSP-Anmeldung wurde abgelehnt."
-    if "404 not found" in lowered:
+    if _stream_not_found(output):
         return "Der angeforderte RTSP-Stream wurde nicht gefunden."
     if any(value in lowered for value in (
         "connection refused", "network is unreachable", "no route to host",
@@ -285,6 +290,13 @@ def diagnose_camera(
     safe_target = urlsplit(render_rtsp(row, row))
     target_port = safe_target.port or 554
     target = f"{safe_target.hostname or 'unbekannt'}:{target_port}{safe_target.path}"
+    stream_source = (
+        "Kamera-Override" if row["stream_override"] else
+        "ZoneMinder RTSPStreamName" if row["rtsp_stream_name"] else
+        "Monitor-ID/Fallback-Regel"
+    )
+    zm_status = row["status"] or "unbekannt"
+    zm_server = row["server_name"] or row["zm_server_hostname"] or "lokaler Server"
     lines = [
         "ZM Wall Streamdiagnose",
         f"Zeit: {datetime.now().astimezone().isoformat(timespec='seconds')}",
@@ -295,6 +307,8 @@ def diagnose_camera(
         f"GPU: {hardware.get('gpu', 'unbekannt')}",
         *diagnostic_lines(),
         f"Kamera: {row['name']} (ID {row['zm_id']}, key {row['camera_key']})",
+        f"ZoneMinder: Status {zm_status} · Server {zm_server} (ServerId {row['server_id'] or '—'})",
+        f"RTSP laut API: {'aktiv' if row['rtsp_enabled'] else 'inaktiv'} · Streamquelle: {stream_source}",
         f"RTSP-Ziel: {target} · Transport: TCP (Zugangsdaten ausgeblendet)",
     ]
     drivers: list[str | None] = [None]

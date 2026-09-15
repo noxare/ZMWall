@@ -8,6 +8,20 @@ Dieses Changelog dokumentiert die Entwicklung von ZM Wall mit Funktionen, Betrie
 
 - Noch keine Änderungen.
 
+## 0.3.0-beta.14 – 2026-09-15
+
+### Behoben
+
+- ZoneMinders/FFmpegs kompakte Meldung `404Stream Not Found` wird nun ebenso wie `404 Not Found` korrekt als fehlender RTSP-Stream erkannt und nicht mehr nur als allgemeiner mpv-Code 2 eingeordnet.
+
+### Diagnose
+
+- Die Einzelprüfung zeigt zusätzlich ZoneMinder-Status, `ServerId`, lesbaren Servernamen, den API-Status der RTSP-Freigabe sowie die Herkunft des verwendeten Streamnamens. Dadurch sind falsche Multiserver-Zuordnungen, Stream-Overrides und nicht bereitgestellte Restreams im selben Bericht nachvollziehbar.
+
+### Tests
+
+- Regressionstest für die tatsächlich beobachtete ZoneMinder-Meldung `DESCRIBE failed: 404Stream Not Found`.
+
 ## 0.3.0-beta.13 – 2026-09-15
 
 ### Behoben
