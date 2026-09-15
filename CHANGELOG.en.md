@@ -8,6 +8,23 @@ This changelog documents ZM Wall's features, operational flows, technical decisi
 
 - No changes yet.
 
+## 0.3.0-beta.13 – 2026-09-15
+
+### Fixed
+
+- The detailed per-stream GPU test used `all=no`, suppressing all general mpv, RTSP, and demuxer messages. If a stream failed before the video decoder opened, the report therefore contained only “mpv produced no decoder diagnostic” and exit code 2.
+- General connection and input messages now remain visible while decoder details continue to use an increased log level.
+
+### Diagnostics
+
+- Every driver variant receives a short interpretation such as authentication rejected, stream not found, connection failed, hardware profile rejected, resolution limit, or successfully initialized GPU decoding.
+- The report identifies the RTSP host, port, stream path, and TCP transport without including a username, password, or URL parameters.
+- URL-encoded forms of usernames and passwords are removed from mpv output as well.
+
+### Tests
+
+- Regression coverage for visible general mpv messages, failure interpretation, and URL-encoded credentials.
+
 ## 0.3.0-beta.12 – 2026-09-15
 
 ### Fixed

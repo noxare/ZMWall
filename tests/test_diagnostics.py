@@ -1,5 +1,7 @@
 from zmwall import diagnostics
-from zmwall.diagnostics import probe_command, probe_stream_summary, redact, summary_probe_command
+from zmwall.diagnostics import (
+    interpret_probe, probe_command, probe_stream_summary, redact, summary_probe_command,
+)
 
 
 def test_diagnostic_output_redacts_url_and_credentials():
@@ -12,10 +14,27 @@ def test_diagnostic_output_redacts_url_and_credentials():
     assert "<RTSP-URL>" in safe
 
 
+def test_diagnostic_output_redacts_url_encoded_credentials():
+    safe = redact("password=p%40ss%26word", "rtsp://other", "admin", "p@ss&word")
+    assert "p%40ss%26word" not in safe
+    assert "p@ss&word" not in safe
+
+
 def test_forced_profile_probe_only_disables_profile_check_for_diagnostic():
     assert "--vd-lavc-check-hw-profile=no" not in probe_command()
     assert "--vd-lavc-check-hw-profile=no" in probe_command(ignore_profile_check=True)
     assert "--hwdec-software-fallback=no" in probe_command(ignore_profile_check=True)
+    assert "--msg-level=all=info,vd=trace,ffmpeg/video=debug" in probe_command()
+
+
+def test_detailed_probe_interpretation_explains_pre_decoder_failures():
+    assert interpret_probe(2, "Failed to open: Connection refused") == (
+        "Die RTSP-Verbindung konnte nicht aufgebaut werden."
+    )
+    assert interpret_probe(2, "404 Not Found") == (
+        "Der angeforderte RTSP-Stream wurde nicht gefunden."
+    )
+    assert "Code 2" in interpret_probe(2, "")
 
 
 def test_summary_probe_reads_one_frame_without_testing_gpu_capacity():

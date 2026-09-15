@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, urlsplit
 
 from .core import connect, render_rtsp
 from .network import diagnostic_lines
@@ -20,6 +21,7 @@ def redact(text: str, url: str, username: str, password: str) -> str:
     for secret in (username, password):
         if secret:
             redacted = redacted.replace(secret, "<redacted>")
+            redacted = redacted.replace(quote(secret, safe=""), "<redacted>")
     return re.sub(r"(?i)(username|password)=([^&\s]+)", r"\1=<redacted>", redacted)
 
 
@@ -48,7 +50,9 @@ def probe_command(ignore_profile_check: bool = False) -> list[str]:
         "--hwdec=vaapi-copy", "--hwdec-software-fallback=no",
         "--frames=30", "--profile=low-latency",
         "--demuxer-lavf-o=rtsp_transport=tcp,rw_timeout=15000000",
-        "--msg-level=all=no,vd=trace,ffmpeg/video=debug", "--playlist=-",
+        # Keep general RTSP/demuxer errors visible. all=no used to hide the
+        # reason whenever mpv failed before opening the video decoder.
+        "--msg-level=all=info,vd=trace,ffmpeg/video=debug", "--playlist=-",
     ]
     if ignore_profile_check:
         command.insert(-1, "--vd-lavc-check-hw-profile=no")
@@ -237,6 +241,33 @@ def run_probe(
     return process.returncode or 0, safe_output[-200_000:]
 
 
+def interpret_probe(returncode: int, output: str) -> str:
+    """Summarize the decisive result without replacing the original mpv log."""
+    lowered = output.lower()
+    if "using hardware decoding" in lowered:
+        return "GPU-Decoding wurde initialisiert."
+    if "hardware does not support image size" in lowered:
+        return "Die erkannte Auflösung überschreitet die Grenze dieses Hardwaredecoders."
+    if "hardware accelerator failed to decode" in lowered or "could not copy back" in lowered:
+        return "Der Hardwaredecoder startete, konnte den Stream aber nicht stabil dekodieren."
+    if "not supported for hardware decode" in lowered:
+        return "Codecprofil oder Streamparameter wurden vom Hardwaredecoder abgelehnt."
+    if any(value in lowered for value in ("401 unauthorized", "403 forbidden", "authentication failed")):
+        return "Die RTSP-Anmeldung wurde abgelehnt."
+    if "404 not found" in lowered:
+        return "Der angeforderte RTSP-Stream wurde nicht gefunden."
+    if any(value in lowered for value in (
+        "connection refused", "network is unreachable", "no route to host",
+        "failed to resolve", "name or service not known", "connection timed out",
+    )):
+        return "Die RTSP-Verbindung konnte nicht aufgebaut werden."
+    if "diagnose nach 20 sekunden beendet" in lowered:
+        return "Der Stream lieferte innerhalb von 20 Sekunden kein auswertbares Ergebnis."
+    if returncode:
+        return f"mpv wurde vor einer eindeutigen Decoderentscheidung beendet (Code {returncode})."
+    return "Kein eindeutiges Hardwaredecoder-Ergebnis erkannt."
+
+
 def _mpv_version() -> str:
     try:
         result = subprocess.run(
@@ -251,6 +282,9 @@ def diagnose_camera(
     db_path: str, identifier: str, version: str, hardware: dict[str, str],
 ) -> str:
     row = camera_row(db_path, identifier)
+    safe_target = urlsplit(render_rtsp(row, row))
+    target_port = safe_target.port or 554
+    target = f"{safe_target.hostname or 'unbekannt'}:{target_port}{safe_target.path}"
     lines = [
         "ZM Wall Streamdiagnose",
         f"Zeit: {datetime.now().astimezone().isoformat(timespec='seconds')}",
@@ -261,6 +295,7 @@ def diagnose_camera(
         f"GPU: {hardware.get('gpu', 'unbekannt')}",
         *diagnostic_lines(),
         f"Kamera: {row['name']} (ID {row['zm_id']}, key {row['camera_key']})",
+        f"RTSP-Ziel: {target} · Transport: TCP (Zugangsdaten ausgeblendet)",
     ]
     drivers: list[str | None] = [None]
     if any(Path("/usr/lib").glob("*/dri/i965_drv_video.so")):
@@ -273,6 +308,7 @@ def diagnose_camera(
             lines.extend([
                 "", f"===== VAAPI-Treiber: {label} · {mode} =====",
                 output.strip() or "mpv lieferte keine Decoderdiagnose.",
+                f"Einordnung: {interpret_probe(returncode, output)}",
                 f"Ergebniscode: {returncode}",
             ])
     return "\n".join(lines) + "\n"
