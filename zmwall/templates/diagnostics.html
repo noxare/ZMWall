@@ -71,6 +71,7 @@
             <td><span class="resolution-state {{ camera.probe_class }}" title="{{ camera.probe_error or '' }}">{{ camera.probe_label }}</span></td>
             <td><span class="resolution-state {{ 'error' if camera.recovery_state == 'failed' else ('ok' if camera.recovery_state == 'recovered' else 'unchecked') }}"
                       title="{{ camera.recovery_title }}">{{ camera.recovery_label }}</span>
+                {% if camera.recovery_state %}<small class="recovery-detail">{{ camera.recovery_title }}</small>{% endif %}
                 {% if camera.recovery_attempted_at %}<small>{{ camera.recovery_attempted_at }}</small>{% endif %}</td>
             <td>{{ camera.configured_width ~ '×' ~ camera.configured_height if camera.configured_width and camera.configured_height else '—' }}</td>
             <td>{{ camera.resolution_label }}</td>
@@ -86,13 +87,41 @@
                 <input type="hidden" name="camera_key" value="{{ camera.camera_key }}">
                 <button type="submit" class="secondary compact">{{ t('run_single_diagnostic') }}</button>
               </form>
+              {% if camera.recovery_state == 'failed' %}
+                <form method="post" action="{{ url_for('reregister_diagnostic_rtsp') }}" class="inline-form">
+                  <input type="hidden" name="camera_key" value="{{ camera.camera_key }}">
+                  <button type="submit" class="secondary compact">{{ t('retry_rtsp_repair') }}</button>
+                </form>
+              {% endif %}
               {% if camera.can_apply_resolution %}
                 <form method="post" action="{{ url_for('apply_diagnostic_resolution') }}" class="inline-form"
                       onsubmit="return confirm({{ t('apply_resolution_confirm')|tojson }})">
                   <input type="hidden" name="camera_key" value="{{ camera.camera_key }}">
                   <button type="submit" class="secondary compact">{{ t('apply_resolution') }}</button>
                 </form>
-              {% else %}—{% endif %}
+              {% endif %}
+              {% if camera.can_apply_resolution or camera.recovery_state == 'failed' %}
+                <details class="temporary-api-login">
+                  <summary>{{ t('temporary_api_login') }}</summary>
+                  <form method="post" class="temporary-api-form">
+                    <input type="hidden" name="camera_key" value="{{ camera.camera_key }}">
+                    <label>{{ t('temporary_username') }}
+                      <input name="temporary_username" autocomplete="username" required>
+                    </label>
+                    <label>{{ t('temporary_password') }}
+                      <input type="password" name="temporary_password" autocomplete="current-password" required>
+                    </label>
+                    {% if camera.recovery_state == 'failed' %}
+                      <button type="submit" formaction="{{ url_for('reregister_diagnostic_rtsp') }}">{{ t('retry_rtsp_repair') }}</button>
+                    {% endif %}
+                    {% if camera.can_apply_resolution %}
+                      <button type="submit" formaction="{{ url_for('apply_diagnostic_resolution') }}"
+                              onclick="return confirm({{ t('apply_resolution_confirm')|tojson }})">{{ t('apply_resolution') }}</button>
+                    {% endif %}
+                  </form>
+                  <small>{{ t('temporary_credentials_notice') }}</small>
+                </details>
+              {% endif %}
             </td>
           </tr>
         {% endfor %}

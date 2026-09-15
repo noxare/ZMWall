@@ -8,6 +8,24 @@ Dieses Changelog dokumentiert die Entwicklung von ZM Wall mit Funktionen, Betrie
 
 - Noch keine Änderungen.
 
+## 0.3.0-beta.17 – 2026-09-15
+
+### Oberfläche
+
+- Die Diagnoseseite verwendet die gesamte verfügbare Fensterbreite. Tabelleninhalte dürfen umbrechen und die Aktionsspalte ordnet Schaltflächen platzsparend an, sodass die rechte Tabellenhälfte auf üblichen Desktop-Auflösungen ohne versteckte horizontale Bedienung erreichbar ist.
+- Die konkrete Ursache einer fehlgeschlagenen RTSP-Reparatur steht sichtbar unter dem Status und nicht mehr ausschließlich im Tooltip.
+- Fehlgeschlagene Reparaturen können direkt in derselben Kamerazeile mit **RTSP erneut registrieren** wiederholt werden.
+
+### Temporäre API-Anmeldung
+
+- Für eine manuelle RTSP-Neuregistrierung oder die bestätigte Auflösungsübernahme kann einmalig ein anderer, berechtigter ZoneMinder-Benutzer eingegeben werden.
+- Die temporären Zugangsdaten gelten nur für den gewählten API-Aufruf. Sie werden weder in der ZM-Wall-Datenbank gespeichert noch in Diagnose- oder Anwendungslogs ausgegeben.
+- Benutzername und Kennwort müssen gemeinsam angegeben werden; unvollständige Eingaben werden vor einem API-Aufruf abgelehnt.
+
+### Tests
+
+- Regressionstests für temporäre Zugangsdaten bei Auflösungsübernahme und manueller RTSP-Reparatur. Insgesamt 62 automatisierte Tests.
+
 ## 0.3.0-beta.16 – 2026-09-15
 
 ### Diagnose

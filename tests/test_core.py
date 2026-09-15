@@ -204,7 +204,7 @@ def test_zoneminder_resolution_update_is_verified_before_local_save(monkeypatch,
             return Response()
 
     session = Session()
-    monkeypatch.setattr(core, "_zone_minder_session", lambda _site: (session, {"token": "safe"}))
+    monkeypatch.setattr(core, "_zone_minder_session", lambda _site, *_credentials: (session, {"token": "safe"}))
     assert core.update_monitor_resolution(db_path, camera_key, 640, 360) == (640, 360)
     assert session.put_data == {"Monitor[Width]": "640", "Monitor[Height]": "360"}
     with connect(db_path) as db:
@@ -248,7 +248,7 @@ def test_rtsp_reregistration_toggles_once_and_verifies_enabled(monkeypatch, tmp_
             return Response()
 
     session = Session()
-    monkeypatch.setattr(core, "_zone_minder_session", lambda _site: (session, {"token": "safe"}))
+    monkeypatch.setattr(core, "_zone_minder_session", lambda _site, *_credentials: (session, {"token": "safe"}))
     monkeypatch.setattr(core.time, "sleep", lambda _seconds: None)
     core.reregister_monitor_rtsp(db_path, camera_key)
     assert session.values == ["0", "1"]
@@ -278,7 +278,7 @@ def test_rtsp_reregistration_reports_missing_edit_permission(monkeypatch, tmp_pa
         def put(self, _url, params=None, data=None, timeout=None):
             return DeniedResponse()
 
-    monkeypatch.setattr(core, "_zone_minder_session", lambda _site: (Session(), {"token": "safe"}))
+    monkeypatch.setattr(core, "_zone_minder_session", lambda _site, *_credentials: (Session(), {"token": "safe"}))
     try:
         core.reregister_monitor_rtsp(db_path, camera_key)
         assert False, "expected permission failure"

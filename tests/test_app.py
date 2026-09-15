@@ -90,10 +90,50 @@ def test_resolution_update_uses_only_verified_server_side_probe(monkeypatch, tmp
     calls = []
     monkeypatch.setattr(
         web, "update_monitor_resolution",
-        lambda path, key, width, height: calls.append((path, key, width, height)) or (width, height),
+        lambda path, key, width, height, username=None, password=None: calls.append(
+            (path, key, width, height, username, password)
+        ) or (width, height),
     )
     response = web.app.test_client().post(
-        "/diagnostics/resolution/apply", data={"camera_key": camera_key},
+        "/diagnostics/resolution/apply", data={
+            "camera_key": camera_key,
+            "temporary_username": "admin",
+            "temporary_password": "one-shot-secret",
+        },
     )
     assert response.status_code == 302
-    assert calls == [(db_path, camera_key, 640, 360)]
+    assert calls == [(db_path, camera_key, 640, 360, "admin", "one-shot-secret")]
+
+
+def test_manual_rtsp_retry_accepts_one_time_credentials(monkeypatch, tmp_path):
+    db_path = str(tmp_path / "manual-retry.db")
+    web = importlib.import_module("zmwall.app")
+    web.DB_PATH = db_path
+    init_db(db_path)
+    with connect(db_path) as db:
+        site_id = db.execute(
+            "INSERT INTO sites(name,base_url,username,password) VALUES(?,?,?,?)",
+            ("Test", "https://zm.invalid/zm", "user", "password"),
+        ).lastrowid
+        camera_key = f"{site_id}:63"
+        db.execute(
+            """INSERT INTO cameras(camera_key,site_id,zm_id,name,rtsp_host,rtsp_enabled)
+               VALUES(?,?,?,?,?,1)""",
+            (camera_key, site_id, "63", "Galerie", "zm.invalid"),
+        )
+    calls = []
+    monkeypatch.setattr(
+        web.manager, "reregister_rtsp_now",
+        lambda key, username, password: calls.append((key, username, password))
+        or (True, "stream", "reregistered"),
+    )
+    response = web.app.test_client().post(
+        "/diagnostics/rtsp/reregister",
+        data={
+            "camera_key": camera_key,
+            "temporary_username": "admin",
+            "temporary_password": "one-shot-secret",
+        },
+    )
+    assert response.status_code == 302
+    assert calls == [(camera_key, "admin", "one-shot-secret")]

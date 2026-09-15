@@ -8,6 +8,24 @@ This changelog documents ZM Wall's features, operational flows, technical decisi
 
 - No changes yet.
 
+## 0.3.0-beta.17 – 2026-09-15
+
+### Interface
+
+- The diagnostics page now uses the full available window width. Table contents can wrap and action buttons use a compact layout, keeping the right half accessible at common desktop resolutions without hidden horizontal navigation.
+- The concrete cause of a failed RTSP repair is shown directly below its state instead of only in a tooltip.
+- Failed repairs can be repeated from the same camera row with **Retry RTSP repair**.
+
+### One-time API login
+
+- A different authorized ZoneMinder user can be supplied once for a manual RTSP re-registration or confirmed resolution update.
+- These credentials apply only to the selected API request. They are neither stored in the ZM Wall database nor written to diagnostic or application logs.
+- Username and password must be supplied together; incomplete input is rejected before an API request.
+
+### Tests
+
+- Regression coverage for one-time credentials during resolution updates and manual RTSP repair. 62 automated tests in total.
+
 ## 0.3.0-beta.16 – 2026-09-15
 
 ### Diagnostics

@@ -308,13 +308,19 @@ def api_url(base_url: str, suffix: str) -> str:
     return f"{base_url.rstrip('/')}/api/{suffix.lstrip('/')}"
 
 
-def _zone_minder_session(site: sqlite3.Row) -> tuple[requests.Session, dict[str, str]]:
+def _zone_minder_session(
+    site: sqlite3.Row, username: str | None = None, password: str | None = None,
+) -> tuple[requests.Session, dict[str, str]]:
     """Authenticate once and return a configured API session and parameters."""
     session = requests.Session()
     session.verify = bool(site["verify_tls"])
     login = session.post(
         api_url(site["base_url"], "host/login.json"),
-        data={"user": site["username"], "pass": site["password"]}, timeout=15,
+        data={
+            "user": username if username is not None else site["username"],
+            "pass": password if password is not None else site["password"],
+        },
+        timeout=15,
     )
     login.raise_for_status()
     auth = login.json()
@@ -445,6 +451,7 @@ def sync_site(db_path: str, site_id: int) -> tuple[int, str | None]:
 
 def update_monitor_resolution(
     db_path: str, camera_key: str, width: int, height: int,
+    username: str | None = None, password: str | None = None,
 ) -> tuple[int, int]:
     """Update and verify one ZoneMinder monitor's configured stream dimensions."""
     if not (16 <= int(width) <= 16384 and 16 <= int(height) <= 16384):
@@ -458,7 +465,7 @@ def update_monitor_resolution(
     if not row:
         raise ValueError("Kamera nicht gefunden")
 
-    session, params = _zone_minder_session(row)
+    session, params = _zone_minder_session(row, username, password)
     endpoint = api_url(row["base_url"], f"monitors/{row['zm_id']}.json")
     response = session.put(
         endpoint, params=params,
@@ -515,7 +522,10 @@ def _reregister_request_error(stage: str, error: requests.RequestException) -> R
     return RtspReregisterError(stage, reason)
 
 
-def reregister_monitor_rtsp(db_path: str, camera_key: str) -> None:
+def reregister_monitor_rtsp(
+    db_path: str, camera_key: str,
+    username: str | None = None, password: str | None = None,
+) -> None:
     """Toggle one enabled ZoneMinder RTSP restream off/on and verify it."""
     with connect(db_path) as db:
         row = db.execute(
@@ -529,7 +539,7 @@ def reregister_monitor_rtsp(db_path: str, camera_key: str) -> None:
         raise ValueError("RTSP-Restream ist laut ZoneMinder-API nicht aktiviert")
 
     try:
-        session, params = _zone_minder_session(row)
+        session, params = _zone_minder_session(row, username, password)
     except requests.RequestException as error:
         raise _reregister_request_error("login", error) from None
     except (ValueError, KeyError):
@@ -936,6 +946,25 @@ class PlayerManager:
         finally:
             with self.rtsp_recovery_lock:
                 self.rtsp_recovery_in_progress.discard(stream_key)
+
+    def reregister_rtsp_now(
+        self, stream_key: str, username: str | None = None, password: str | None = None,
+    ) -> tuple[bool, str, str]:
+        """Run a user-requested repair and retain a safe, visible result."""
+        self._record_rtsp_recovery(stream_key, "reregistering", "stream", "manual_retry")
+        try:
+            reregister_monitor_rtsp(self.db_path, stream_key, username, password)
+        except RtspReregisterError as error:
+            self._record_rtsp_recovery(stream_key, "failed", error.stage, error.reason)
+            return False, error.stage, error.reason
+        except (ValueError, RuntimeError, requests.RequestException):
+            self._record_rtsp_recovery(stream_key, "failed", "prepare", "setup_failed")
+            return False, "prepare", "setup_failed"
+        with self.rtsp_recovery_lock:
+            self.rtsp_recovery_attempted.add(stream_key)
+        self._record_rtsp_recovery(stream_key, "retrying", "stream", "reregistered")
+        self.reload_event.set()
+        return True, "stream", "reregistered"
 
     def _handle_player_failure(self, player: Player) -> None:
         if player.output_thread is not None:

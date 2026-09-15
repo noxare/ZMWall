@@ -444,8 +444,14 @@ def apply_diagnostic_resolution():
         flash(t("resolution_already_matches"), "ok")
         return redirect(url_for("diagnostics"))
     try:
+        temporary_username = request.form.get("temporary_username") or None
+        temporary_password = request.form.get("temporary_password") or None
+        if bool(temporary_username) != bool(temporary_password):
+            flash(t("temporary_credentials_incomplete"), "error")
+            return redirect(url_for("diagnostics"))
         width, height = update_monitor_resolution(
             DB_PATH, camera_key, int(row["actual_width"]), int(row["actual_height"]),
+            temporary_username, temporary_password,
         )
     except requests.RequestException as error:
         status_code = error.response.status_code if error.response is not None else None
@@ -455,6 +461,35 @@ def apply_diagnostic_resolution():
         flash(t("resolution_apply_failed", error=str(error)[:300]), "error")
     else:
         flash(t("resolution_applied", camera=row["name"], width=width, height=height), "ok")
+    return redirect(url_for("diagnostics"))
+
+
+@app.post("/diagnostics/rtsp/reregister")
+@login_required
+def reregister_diagnostic_rtsp():
+    camera_key = request.form.get("camera_key", "")
+    temporary_username = request.form.get("temporary_username") or None
+    temporary_password = request.form.get("temporary_password") or None
+    if bool(temporary_username) != bool(temporary_password):
+        flash(t("temporary_credentials_incomplete"), "error")
+        return redirect(url_for("diagnostics"))
+    with connect(DB_PATH) as db:
+        camera = db.execute(
+            "SELECT name FROM cameras WHERE camera_key=? AND rtsp_enabled=1",
+            (camera_key,),
+        ).fetchone()
+    if not camera:
+        flash(t("invalid_camera"), "error")
+        return redirect(url_for("diagnostics"))
+    success, stage, reason = manager.reregister_rtsp_now(
+        camera_key, temporary_username, temporary_password,
+    )
+    detail = _recovery_description(stage, reason)
+    flash(
+        t("rtsp_manual_started", camera=camera["name"]) if success
+        else t("rtsp_manual_failed", error=detail),
+        "ok" if success else "error",
+    )
     return redirect(url_for("diagnostics"))
 
 
