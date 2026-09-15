@@ -254,6 +254,39 @@ def test_rtsp_reregistration_toggles_once_and_verifies_enabled(monkeypatch, tmp_
     assert session.values == ["0", "1"]
 
 
+def test_rtsp_reregistration_reports_missing_edit_permission(monkeypatch, tmp_path):
+    db_path = str(tmp_path / "zm-reregister-denied.db")
+    init_db(db_path)
+    with connect(db_path) as db:
+        site_id = db.execute(
+            "INSERT INTO sites(name,base_url,username,password) VALUES('Test','https://zm/zm','u','p')"
+        ).lastrowid
+        camera_key = f"{site_id}:4"
+        db.execute(
+            """INSERT INTO cameras(camera_key,site_id,zm_id,name,rtsp_host,rtsp_enabled)
+               VALUES(?,?,?,?,?,1)""",
+            (camera_key, site_id, "4", "Tor", "zm"),
+        )
+
+    class DeniedResponse:
+        status_code = 403
+
+        def raise_for_status(self):
+            raise core.requests.HTTPError(response=self)
+
+    class Session:
+        def put(self, _url, params=None, data=None, timeout=None):
+            return DeniedResponse()
+
+    monkeypatch.setattr(core, "_zone_minder_session", lambda _site: (Session(), {"token": "safe"}))
+    try:
+        core.reregister_monitor_rtsp(db_path, camera_key)
+        assert False, "expected permission failure"
+    except core.RtspReregisterError as error:
+        assert error.stage == "disable"
+        assert error.reason == "permission_denied"
+
+
 def test_missing_rtsp_recovery_is_attempted_only_once_per_outage(monkeypatch):
     manager = core.PlayerManager("unused.db")
     calls = []

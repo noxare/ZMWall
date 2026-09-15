@@ -44,7 +44,7 @@
           ? labels.i18nRtspReregistering
           : retrying ? labels.i18nRtspRetrying : labels.i18nRtspMissing;
         badge.className = `stream-decoder ${running || retrying ? "recovering" : "error"}`;
-        badge.title = badge.textContent;
+        badge.title = recovery.detail || badge.textContent;
       });
       const runtimeStreams = Object.values(payload.screens || {}).flatMap((screen) => screen.streams || []);
       streamBadges.forEach((badge) => {

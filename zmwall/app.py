@@ -59,6 +59,18 @@ def _diagnostic_class(row: object) -> str:
     return "unchecked"
 
 
+def _recovery_description(stage: str | None, reason: str | None) -> str:
+    if not stage or not reason:
+        return t("recovery_none")
+    stage_label = t(f"recovery_stage_{stage}")
+    reason_label = reason.replace("_", " ") if reason.startswith("http_") else t(
+        f"recovery_reason_{reason}"
+    )
+    if reason.startswith("http_"):
+        reason_label = reason.upper().replace("_", " ")
+    return f"{stage_label}: {reason_label}"
+
+
 def _camera_view(row: object) -> dict[str, object]:
     camera = dict(row)
     camera["resolution_class"] = _diagnostic_class(row)
@@ -84,6 +96,11 @@ def _camera_view(row: object) -> dict[str, object]:
     camera["probe_label"] = t(f"probe_{probe_status or 'unchecked'}")
     camera["can_apply_resolution"] = (
         probe_status == "ok" and camera["resolution_class"] == "mismatch"
+    )
+    recovery_state = camera.get("recovery_state")
+    camera["recovery_label"] = t(f"recovery_{recovery_state or 'none'}")
+    camera["recovery_title"] = _recovery_description(
+        camera.get("recovery_stage"), camera.get("recovery_reason"),
     )
     return camera
 
@@ -302,7 +319,12 @@ def set_language():
 @app.get("/runtime/status")
 @login_required
 def get_runtime_status():
-    return jsonify(manager.runtime_status())
+    status = manager.runtime_status()
+    for recovery in status.get("recoveries", {}).values():
+        recovery["detail"] = _recovery_description(
+            recovery.get("stage"), recovery.get("reason"),
+        )
+    return jsonify(status)
 
 
 @app.route("/diagnostics", methods=["GET", "POST"])
@@ -320,10 +342,13 @@ def diagnostics():
                       COALESCE(sd.probe_height,sd.actual_height) AS actual_height,
                       sd.codec,sd.profile,sd.fps,
                       sd.checked_at,sd.probe_status,sd.probe_error,sd.probe_checked_at,
-                      sd.metadata_source
+                      sd.metadata_source,rr.state AS recovery_state,
+                      rr.stage AS recovery_stage,rr.reason AS recovery_reason,
+                      rr.attempted_at AS recovery_attempted_at
                FROM cameras c
                LEFT JOIN camera_stream_config csc ON csc.camera_key=c.camera_key
                LEFT JOIN stream_diagnostics sd ON sd.camera_key=c.camera_key
+               LEFT JOIN rtsp_recovery_events rr ON rr.camera_key=c.camera_key
                WHERE c.enabled=1 AND c.rtsp_enabled=1 ORDER BY c.name"""
         ).fetchall()
     selected = request.form.get("camera_key", "")

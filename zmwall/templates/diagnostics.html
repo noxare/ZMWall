@@ -58,6 +58,7 @@
       <table class="diagnostic-table" data-batch-table>
         <thead><tr>
           <th>{{ t('camera') }}</th><th>{{ t('zm_status') }}</th><th>{{ t('probe_status') }}</th>
+          <th>{{ t('rtsp_recovery') }}</th>
           <th>{{ t('configured_resolution') }}</th>
           <th>{{ t('actual_resolution') }}</th><th>{{ t('stream_format') }}</th>
           <th>{{ t('assessment') }}</th><th>{{ t('last_checked') }}</th><th data-export-ignore>{{ t('actions') }}</th>
@@ -68,6 +69,9 @@
             <td><strong>{{ camera.name }}</strong><small>ID {{ camera.zm_id }} · {{ camera.server_name or t('local_server') }}</small></td>
             <td>{{ camera.zm_status or t('unknown') }}</td>
             <td><span class="resolution-state {{ camera.probe_class }}" title="{{ camera.probe_error or '' }}">{{ camera.probe_label }}</span></td>
+            <td><span class="resolution-state {{ 'error' if camera.recovery_state == 'failed' else ('ok' if camera.recovery_state == 'recovered' else 'unchecked') }}"
+                      title="{{ camera.recovery_title }}">{{ camera.recovery_label }}</span>
+                {% if camera.recovery_attempted_at %}<small>{{ camera.recovery_attempted_at }}</small>{% endif %}</td>
             <td>{{ camera.configured_width ~ '×' ~ camera.configured_height if camera.configured_width and camera.configured_height else '—' }}</td>
             <td>{{ camera.resolution_label }}</td>
             <td>{{ ((camera.codec or '—') ~ (' · ' ~ camera.profile if camera.profile else '') ~ (' · ' ~ camera.fps ~ ' fps' if camera.fps else '')) }}</td>

@@ -8,6 +8,20 @@ Dieses Changelog dokumentiert die Entwicklung von ZM Wall mit Funktionen, Betrie
 
 - Noch keine Änderungen.
 
+## 0.3.0-beta.16 – 2026-09-15
+
+### Diagnose
+
+- Der letzte automatische RTSP-Reparaturversuch wird mit Zustand, Phase, sicherer Fehlerursache und Zeitpunkt in der Datenbank festgehalten und auf der Diagnoseseite angezeigt.
+- API-Anmeldung, Abschalten, Einschalten, Wiederherstellung und anschließende Kontrolle sind als getrennte Phasen erkennbar.
+- HTTP 401 wird als abgelehnte Anmeldung und HTTP 403 ausdrücklich als fehlendes Bearbeitungsrecht des verwendeten ZoneMinder-Benutzers gemeldet. Weitere HTTP-Statuscodes werden ohne URL, Token oder Zugangsdaten angezeigt.
+- War die API-Neuregistrierung erfolgreich, der Restream antwortet danach aber weiterhin mit 404, wird dies von einem fehlgeschlagenen API-Aufruf unterschieden.
+- Der Tooltip des Stream-Badges enthält dieselbe konkrete Ursache wie die Diagnoseseite.
+
+### Tests
+
+- Regressionstest für einen von ZoneMinder mit HTTP 403 abgelehnten Schreibzugriff sowie weiterhin vollständige Tests der Einmal-Sperre und API-Verifikation.
+
 ## 0.3.0-beta.15 – 2026-09-15
 
 ### Hinzugefügt

@@ -8,6 +8,20 @@ This changelog documents ZM Wall's features, operational flows, technical decisi
 
 - No changes yet.
 
+## 0.3.0-beta.16 – 2026-09-15
+
+### Diagnostics
+
+- The latest automatic RTSP repair attempt is persisted with state, phase, credential-safe reason, and timestamp and is displayed on the diagnostics page.
+- API login, disable, enable, restoration, and verification are reported as distinct phases.
+- HTTP 401 is identified as rejected authentication, while HTTP 403 explicitly indicates that the configured ZoneMinder user lacks edit permission. Other HTTP status codes are shown without a URL, token, or credentials.
+- A successful API re-registration followed by another RTSP 404 is distinguished from an API call that failed.
+- The stream badge tooltip contains the same concrete reason as the diagnostics page.
+
+### Tests
+
+- Regression coverage for a ZoneMinder write request rejected with HTTP 403 while retaining complete once-per-outage and API verification coverage.
+
 ## 0.3.0-beta.15 – 2026-09-15
 
 ### Added

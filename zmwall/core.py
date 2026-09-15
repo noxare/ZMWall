@@ -207,6 +207,13 @@ CREATE TABLE IF NOT EXISTS stream_diagnostics (
   probe_checked_at TEXT,
   metadata_source TEXT
 );
+CREATE TABLE IF NOT EXISTS rtsp_recovery_events (
+  camera_key TEXT PRIMARY KEY REFERENCES cameras(camera_key) ON DELETE CASCADE,
+  state TEXT NOT NULL,
+  stage TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  attempted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -484,6 +491,30 @@ def update_monitor_resolution(
     return verified
 
 
+class RtspReregisterError(RuntimeError):
+    """Credential-safe failure with a machine-readable recovery phase and cause."""
+
+    def __init__(self, stage: str, reason: str):
+        self.stage = stage
+        self.reason = reason
+        super().__init__(f"{stage}:{reason}")
+
+
+def _reregister_request_error(stage: str, error: requests.RequestException) -> RtspReregisterError:
+    status = error.response.status_code if error.response is not None else None
+    if status == 401:
+        reason = "authentication_denied"
+    elif status == 403:
+        reason = "permission_denied"
+    elif status == 404:
+        reason = "monitor_not_found"
+    elif status:
+        reason = f"http_{status}"
+    else:
+        reason = "api_connection_failed"
+    return RtspReregisterError(stage, reason)
+
+
 def reregister_monitor_rtsp(db_path: str, camera_key: str) -> None:
     """Toggle one enabled ZoneMinder RTSP restream off/on and verify it."""
     with connect(db_path) as db:
@@ -497,40 +528,53 @@ def reregister_monitor_rtsp(db_path: str, camera_key: str) -> None:
     if not row["rtsp_enabled"]:
         raise ValueError("RTSP-Restream ist laut ZoneMinder-API nicht aktiviert")
 
-    session, params = _zone_minder_session(row)
+    try:
+        session, params = _zone_minder_session(row)
+    except requests.RequestException as error:
+        raise _reregister_request_error("login", error) from None
+    except (ValueError, KeyError):
+        raise RtspReregisterError("login", "invalid_api_response") from None
     endpoint = api_url(row["base_url"], f"monitors/{row['zm_id']}.json")
 
-    def set_enabled(enabled: bool) -> None:
-        response = session.put(
-            endpoint, params=params,
-            data={"Monitor[RTSPServer]": "1" if enabled else "0"}, timeout=20,
-        )
-        response.raise_for_status()
+    def set_enabled(enabled: bool, stage: str) -> None:
+        try:
+            response = session.put(
+                endpoint, params=params,
+                data={"Monitor[RTSPServer]": "1" if enabled else "0"}, timeout=20,
+            )
+            response.raise_for_status()
+        except requests.RequestException as error:
+            raise _reregister_request_error(stage, error) from None
 
     disabled = False
     try:
-        set_enabled(False)
+        set_enabled(False, "disable")
         disabled = True
         time.sleep(1.0)
-        set_enabled(True)
+        set_enabled(True, "enable")
         disabled = False
         time.sleep(1.0)
     finally:
         # A partial failure must not intentionally leave the restream off.
         if disabled:
             try:
-                set_enabled(True)
-            except requests.RequestException:
+                set_enabled(True, "restore")
+            except RtspReregisterError:
                 pass
 
-    verification = session.get(endpoint, params=params, timeout=20)
-    verification.raise_for_status()
-    payload = verification.json()
+    try:
+        verification = session.get(endpoint, params=params, timeout=20)
+        verification.raise_for_status()
+        payload = verification.json()
+    except requests.RequestException as error:
+        raise _reregister_request_error("verify", error) from None
+    except ValueError:
+        raise RtspReregisterError("verify", "invalid_api_response") from None
     item = payload.get("monitor", payload.get("Monitor", payload))
     if isinstance(item, dict) and "Monitor" in item:
         item = item["Monitor"]
     if not isinstance(item, dict) or not zm_enabled(item.get("RTSPServer")):
-        raise RuntimeError("ZoneMinder meldet den RTSP-Restream nach der Neuregistrierung als inaktiv")
+        raise RtspReregisterError("verify", "restream_inactive")
 
 
 def detect_outputs() -> list[dict[str, int | str]]:
@@ -837,25 +881,56 @@ class PlayerManager:
             if re.search(r"\b404\s*(?:stream\s*)?not\s+found\b", line, re.IGNORECASE):
                 player.failure_reason = "rtsp-not-found"
 
+    def _record_rtsp_recovery(
+        self, stream_key: str, state: str, stage: str, reason: str, visible: bool = True,
+    ) -> None:
+        with self.rtsp_recovery_lock:
+            if visible:
+                self.rtsp_recovery_status[stream_key] = {
+                    "state": state, "stage": stage, "reason": reason,
+                }
+            else:
+                self.rtsp_recovery_status.pop(stream_key, None)
+        if not Path(self.db_path).exists():
+            return
+        try:
+            with connect(self.db_path) as db:
+                db.execute(
+                    """INSERT INTO rtsp_recovery_events(camera_key,state,stage,reason,attempted_at)
+                       VALUES(?,?,?,?,CURRENT_TIMESTAMP)
+                       ON CONFLICT(camera_key) DO UPDATE SET
+                         state=excluded.state,stage=excluded.stage,reason=excluded.reason,
+                         attempted_at=CURRENT_TIMESTAMP""",
+                    (stream_key, state, stage, reason),
+                )
+        except sqlite3.Error:
+            pass
+
     def _recover_missing_rtsp(self, player: Player) -> None:
         """Run one API re-registration attempt for the current outage."""
         stream_key = player.stream_key
         try:
             reregister_monitor_rtsp(self.db_path, stream_key)
-        except (ValueError, RuntimeError, requests.RequestException) as error:
-            with self.rtsp_recovery_lock:
-                self.rtsp_recovery_status[stream_key] = {
-                    "state": "failed", "message": type(error).__name__,
-                }
+        except RtspReregisterError as error:
+            self._record_rtsp_recovery(
+                stream_key, "failed", error.stage, error.reason,
+            )
             switch_log(
                 player.tile_key, player.label, "rtsp-reregister-failed",
-                error=type(error).__name__,
+                stage=error.stage, reason=error.reason,
+            )
+        except (ValueError, RuntimeError, requests.RequestException) as error:
+            self._record_rtsp_recovery(
+                stream_key, "failed", "prepare", "setup_failed",
+            )
+            switch_log(
+                player.tile_key, player.label, "rtsp-reregister-failed",
+                stage="prepare", reason=type(error).__name__,
             )
         else:
-            with self.rtsp_recovery_lock:
-                self.rtsp_recovery_status[stream_key] = {
-                    "state": "retrying", "message": "reregistered",
-                }
+            self._record_rtsp_recovery(
+                stream_key, "retrying", "stream", "reregistered",
+            )
             switch_log(player.tile_key, player.label, "rtsp-reregister-complete")
             self.reload_event.set()
         finally:
@@ -869,19 +944,23 @@ class PlayerManager:
             return
         with self.rtsp_recovery_lock:
             if player.stream_key in self.rtsp_recovery_attempted:
-                self.rtsp_recovery_status[player.stream_key] = {
-                    "state": "failed", "message": "still-not-found",
-                }
-                switch_log(
-                    player.tile_key, player.label, "rtsp-still-not-found",
-                    recovery="not-repeated",
-                )
-                return
-            self.rtsp_recovery_attempted.add(player.stream_key)
-            self.rtsp_recovery_in_progress.add(player.stream_key)
-            self.rtsp_recovery_status[player.stream_key] = {
-                "state": "reregistering", "message": "404-stream-not-found",
-            }
+                repeated = True
+            else:
+                repeated = False
+                self.rtsp_recovery_attempted.add(player.stream_key)
+                self.rtsp_recovery_in_progress.add(player.stream_key)
+        if repeated:
+            self._record_rtsp_recovery(
+                player.stream_key, "failed", "stream", "still_not_found",
+            )
+            switch_log(
+                player.tile_key, player.label, "rtsp-still-not-found",
+                recovery="not-repeated",
+            )
+            return
+        self._record_rtsp_recovery(
+            player.stream_key, "reregistering", "stream", "not_found",
+        )
         switch_log(player.tile_key, player.label, "rtsp-not-found", recovery="starting-once")
         threading.Thread(target=self._recover_missing_rtsp, args=(player,), daemon=True).start()
 
@@ -1217,9 +1296,12 @@ class PlayerManager:
             return False
 
         with self.rtsp_recovery_lock:
-            recovered = self.rtsp_recovery_status.pop(player.stream_key, None)
+            recovered = self.rtsp_recovery_status.get(player.stream_key)
             self.rtsp_recovery_attempted.discard(player.stream_key)
         if recovered is not None:
+            self._record_rtsp_recovery(
+                player.stream_key, "recovered", "stream", "frame_received", visible=False,
+            )
             switch_log(player.tile_key, player.label, "rtsp-stream-recovered")
 
         now = time.monotonic()
