@@ -6,45 +6,39 @@
 
 Aktueller Entwicklungsstand: **0.3.0-beta.24**
 
-ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigurierbare RTSP-Videowand für ZoneMinder. Jeder physische Monitor kann ein eigenes Raster und eine eigene Kamerabelegung erhalten. ZM Wall verwendet die integrierte RTSP-Restream-Funktion von ZoneMinder: Die Streams werden nicht zusätzlich direkt von den Kameras abgerufen, sondern von ZoneMinder bereitgestellt und mit `mpv` wiedergegeben. Die Weboberfläche dient zur Verwaltung.
+ZM Wall macht aus einem Debian-Rechner eine über das Netzwerk konfigurierbare RTSP-Videowand für ZoneMinder. Jeder physische Monitor erhält ein eigenes Raster und eine eigene Kamerabelegung. Die Anzeige verwendet ZoneMinders integrierte RTSP-Restreams und erzeugt keine zusätzlichen direkten Verbindungen zu den Kameras.
 
-## Funktionen
+## Aktueller Funktionsumfang
 
-- einstellbares Raster von 1×1 bis 8×8 je Display-Ausgang
-- beliebig viele angeschlossene Displays
-- mehrere unabhängige ZoneMinder-Verbindungen
-- ZoneMinder-Multiserver: Zuordnung über `Monitor.ServerId` und `/api/servers.json`
-- automatische Übernahme von Kamera-ID, Name, Status und zuständigem Server
-- Live-Anzeige aktiver LAN- und WLAN-Verbindungen sowie Netzwerkdetails in der Diagnose
-- Hostname bevorzugt; automatische Fallback-IP pro ZoneMinder-Server
-- erneute API-Synchronisierung alle fünf Minuten und manuell per Schaltfläche
-- automatische Wiederherstellung abgebrochener oder vorübergehend nicht erreichbarer Streams
-- Drag-and-drop-Belegung mit einem Vorrat noch nicht zugeordneter RTSP-Kameras
+- mehrere Displays und unabhängige ZoneMinder-Verbindungen
+- visuelle Grid-Vorgaben sowie benutzerdefinierte Raster von 1×1 bis 8×8
+- Drag-and-drop-Belegung aus einem Vorrat verfügbarer RTSP-Kameras
 - mehrere Kameras je Grid-Position mit einstellbarem Wechselintervall
 - vorgepufferter Kamerawechsel ohne absichtlich erzeugte Schwarzphase
-- anpassbare RTSP-Port-, Streamname- und URL-Regeln
-- abweichender RTSP-Host oder Streamname pro Kamera möglich
-- Erstkonfiguration der Weboberfläche ohne lokales Kennwort
-- nach erfolgreicher ZoneMinder-Erkennung Anmeldung direkt gegen ZoneMinder
-- Nutzung der integrierten ZoneMinder-RTSP-Restreams mit `mpv`, Hardware-Decoding und TCP-Transport
-- Weboberfläche auf Deutsch und Englisch; automatische Auswahl anhand der Browser-/Systemsprache und jederzeit manuell umschaltbar
-- Sammeldiagnose aller RTSP-Kameras mit Vergleich von ZoneMinder- und tatsächlicher Streamauflösung
-- dezente, farbcodierte Auflösungsanzeige pro Kamera in der Grid-Konfiguration
+- automatische Wiederherstellung ausgefallener Streams
+- automatische ZoneMinder-Multiserver-Zuordnung über `Monitor.ServerId`
+- frei konfigurierbare RTSP-Ports, Streamnamen und URL-Vorlagen
+- automatische Hardwaredecoderwahl mit Rockchip-MPP- und Intel-VAAPI-Unterstützung sowie CPU-Fallback
+- Live-Anzeige des verwendeten CPU-/GPU-Decoders pro Stream
+- Vollbild einer Grid-Position per Doppelklick oder Tastenkombination
+- deutsch- und englischsprachige Weboberfläche und Wall-Hinweise
+- Stream-, Auflösungs-, Hardwaredecoder- und Netzwerkdiagnose
+- geschützte Aktualisierung direkt aus der Weboberfläche
 
 ## Voraussetzungen
 
 - Debian 12 oder 13 auf einem dedizierten Anzeigerechner
-- Netzwerkzugriff auf die ZoneMinder-API und alle RTSP-Ports
-- ein eigener ZoneMinder-Benutzer mit mindestens Leserechten auf die benötigten Monitore
-- für die automatische Multiserver-Zuordnung müssen die in ZoneMinder hinterlegten Server-Hostnamen vom Anzeigerechner aus auflösbar sein
+- Netzwerkzugriff auf ZoneMinder-API und RTSP-Restreams
+- ZoneMinder-Benutzer mit Leserechten auf die benötigten Monitore
+- aktivierte API unter **Options → System → OPT_USE_API**
+- gesetztes `AUTH_HASH_SECRET` für die Token-Anmeldung
+- erreichbarer RTSP-Restream; Standardport ist `20000`
 
-Die ZoneMinder-API muss unter **Options → System → OPT_USE_API** aktiviert sein. Für die aktuelle Token-Anmeldung benötigt ZoneMinder außerdem einen gesetzten `AUTH_HASH_SECRET`.
-
-ZoneMinders RTSP-Restream muss für die verwendeten Monitore erreichbar sein. Der Standardport ist `20000`. Dadurch erzeugt ZM Wall keine zusätzlichen direkten Verbindungen zu den Kameras; die vorhandenen ZoneMinder-Streams werden weiterverwendet.
+Für die automatische Multiserver-Zuordnung sollten die in ZoneMinder hinterlegten Server-Hostnamen vom Anzeigerechner auflösbar sein. Alternativ kann je Server eine Fallback-IP hinterlegt werden.
 
 ## Installation
 
-Auf dem frisch installierten Debian:
+Auf einem frisch installierten Debian:
 
 ```bash
 sudo apt-get update
@@ -55,117 +49,72 @@ sudo bash install.sh
 sudo reboot
 ```
 
-Der Installer richtet Xorg, Openbox, LightDM, `mpv`, Nginx, lokales HTTPS, den Benutzer `zmwall` und die Python-Umgebung ein. Ein separates Kennwort für die ZM-Wall-Weboberfläche wird nicht mehr angelegt. Danach ist die Verwaltung unter folgender Adresse erreichbar:
+Der Installer richtet Xorg, Openbox, LightDM, `mpv`, Nginx, lokales HTTPS, den Benutzer `zmwall` und die Python-Umgebung ein. Danach ist die Verwaltung erreichbar unter:
 
 ```text
 https://IP-DES-ANZEIGERECHNERS
 ```
 
-## Lokales HTTPS
+## Erste Einrichtung
 
-Nginx stellt die Weboberfläche auf Port 443 bereit und leitet Port 80 automatisch auf HTTPS um. Der Python-Webdienst ist nur lokal unter `127.0.0.1:8080` erreichbar.
+Die Weboberfläche bleibt bis zur ersten erfolgreich synchronisierten ZoneMinder-Verbindung ohne Anmeldung erreichbar.
 
-Bei der Installation wird eine lokale ZMWall-CA mit zehn Jahren Laufzeit angelegt. Das davon signierte Serverzertifikat ist 90 Tage gültig. Der systemd-Timer `zmwall-cert-renew.timer` prüft es täglich, erneuert es 30 Tage vor Ablauf und berücksichtigt auch geänderte lokale IPv4-Adressen.
+1. ZoneMinder-Verbindung hinzufügen, beispielsweise `https://zm.example/zm` ohne `/api`.
+2. ZoneMinder-Benutzername, Kennwort und RTSP-Port eintragen.
+3. Streamname-Regel festlegen; `{id}` verwendet die Monitor-ID.
+4. Verbindung synchronisieren. Danach wird die Weboberfläche automatisch durch die Anmeldung gegen ZoneMinder geschützt.
+5. Erkannten Display-Ausgang hinzufügen und Grid sowie Wechselintervall wählen.
+6. Kameras aus **Verfügbare Kameras** auf die Grid-Positionen ziehen.
+7. **Alle Layouts übernehmen** wählen.
 
-Die öffentliche CA kann nach der Installation hier heruntergeladen und einmalig auf den Verwaltungsgeräten als vertrauenswürdig eingerichtet werden:
+Mehrere Kameras in einer Position wechseln in ihrer angezeigten Reihenfolge. Auf Touch-Geräten kann zuerst die Kamera und anschließend die Zielposition angetippt werden. Bereits konfigurierte Display-Ausgänge stehen erst nach dem Löschen ihrer Konfiguration wieder zur Auswahl.
 
-```text
-https://IP-DES-ANZEIGERECHNERS/zmwall-local-ca.crt
-```
-
-Der private CA-Schlüssel liegt ausschließlich unter `/etc/zmwall/tls/zmwall-local-ca.key` und darf den Anzeigerechner nicht verlassen.
-
-## Erste Einrichtung und Anmeldung
-
-Solange noch keine ZoneMinder-Verbindung erfolgreich synchronisiert wurde, ist die Weboberfläche absichtlich ohne Anmeldung erreichbar. Dadurch kann die erste ZoneMinder-Verbindung eingerichtet und bei falscher URL, TLS-Problemen oder fehlerhaften Zugangsdaten korrigiert werden.
-
-1. In der Weboberfläche eine ZoneMinder-Verbindung hinzufügen. Als URL beispielsweise `https://zm.example/zm` eintragen, also den Pfad vor `/api`.
-2. ZoneMinder-Benutzername und Kennwort für die API-/RTSP-Verbindung eintragen.
-3. RTSP-Port festlegen. Der Vorgabewert ist `20000`.
-4. Die Streamname-Regel festlegen. `{id}` ergibt beispielsweise für Monitor 100 den Streamnamen `100`.
-5. Nach dem ersten erfolgreichen Sync wird die Weboberfläche automatisch geschützt. Der Browser verlangt dann Benutzername und Kennwort; diese werden direkt gegen `/api/host/login.json` des erfolgreich erkannten ZoneMinder-Servers geprüft.
-6. Einen erkannten Display-Ausgang hinzufügen sowie Zeilen, Spalten und Wechselintervall wählen.
-7. Kameras aus **Verfügbare Kameras** per Drag-and-drop auf die Grid-Positionen ziehen. Auf Touch-Geräten zuerst die Kamera und danach die Zielposition antippen.
-8. Mehrere Kameras in derselben Position werden in ihrer angezeigten Reihenfolge zyklisch gewechselt. Sie können auch zwischen den Positionen verschoben oder mit **×** zurück in den Vorrat gelegt werden.
-9. **Alle Layouts übernehmen** klicken. Die Anzeige wird ohne Neustart neu aufgebaut.
-
-Bei mehreren erfolgreich synchronisierten ZoneMinder-Verbindungen genügt ein gültiger Benutzer auf einer dieser Installationen für den Zugriff auf ZM Wall.
-
-Die mitgelieferte RTSP-Vorlage entspricht:
+Die Standardvorlage für RTSP lautet:
 
 ```text
 rtsp://{host}:{port}/{stream}?username={username}&password={password}
 ```
 
-Verfügbare Werte sind `{host}`, `{port}`, `{stream}`, `{username}`, `{password}`, `{id}` und `{name}`. Die Streamname-Regel versteht `{id}`, `{name}` und `{server_id}`.
+Verfügbare Werte sind `{host}`, `{port}`, `{stream}`, `{username}`, `{password}`, `{id}` und `{name}`. Die Streamname-Regel unterstützt `{id}`, `{name}` und `{server_id}`.
 
-## Multiserver-Verhalten
+## Bedienung der Wall
 
-ZM Wall fragt am eingetragenen ZoneMinder-Controller `/api/monitors.json` und `/api/servers.json` ab. Bei jeder Kamera wird `Monitor.ServerId` mit dem passenden `Server.Id` verknüpft und `Server.Hostname` als RTSP-Host verwendet. Bei einer Einzelserver-Installation wird der Hostname der eingetragenen ZoneMinder-URL benutzt.
+- **Doppelklick auf ein Kamerabild:** Grid-Position auf dem zugehörigen Monitor als Vollbild anzeigen oder wieder schließen
+- **Esc:** Vollbild schließen
+- **Alt halten, Feldnummer eingeben, Alt loslassen:** nummerierte Grid-Position als Vollbild öffnen oder schließen
+- **Strg+Alt+Ende:** lokale Openbox-Sitzung beenden
 
-ZM Wall speichert bei jeder erfolgreichen Namensauflösung zusätzlich die ermittelte IPv4-Adresse des ZoneMinder-Servers. Ist der Hostname später nicht mehr auflösbar, wird automatisch diese zuletzt bekannte IP verwendet. Ist der Name bereits bei der ersten Einrichtung nicht auflösbar, kann unter der ZoneMinder-Verbindung einmalig eine **Fallback-IP** für den betreffenden Server eingetragen werden. Sie gilt automatisch für alle Kameras mit dieser `ServerId`.
+Die Feldnummer steht dezent oben links im Kamerabild. Während des Vollbilds pausiert der Kamerawechsel dieser Position; die laufenden Streams bleiben für eine schnelle Rückkehr zum Grid erhalten.
 
-Zusätzlich kann für Sonderfälle weiterhin in der Kameraliste ein individueller **RTSP-Host (optional)** eingetragen werden. Diese Kamera-Überschreibung hat die höchste Priorität und bleibt bei späteren Synchronisierungen erhalten.
+## Multiserver und Stream-Wiederherstellung
 
-## Stream-Wiederherstellung und Rotation
+ZM Wall verknüpft `Monitor.ServerId` mit `/api/servers.json` und verwendet den jeweiligen Server-Hostnamen als RTSP-Ziel. Die zuletzt erfolgreich aufgelöste IPv4-Adresse wird als automatischer Fallback gespeichert. Zusätzlich sind eine Fallback-IP je Server sowie ein individueller RTSP-Host oder Streamname je Kamera möglich.
 
-ZM Wall überwacht jeden gestarteten `mpv`-Prozess. Bricht ein RTSP-Stream ab oder läuft die Netzwerk-Lesezeitüberschreitung ab, wird der Player beendet und in kurzen Abständen erneut gestartet. Sobald Kamera und RTSP-Server wieder erreichbar sind, erscheint das Bild automatisch; ein Neustart der Wall ist nicht erforderlich.
+Abgebrochene oder vorübergehend nicht erreichbare Streams werden automatisch neu gestartet. Meldet ein erreichbarer ZoneMinder-Restream ausdrücklich `404 Stream Not Found`, kann ZM Wall die RTSP-Registrierung des betroffenen Monitors über die ZoneMinder-API reparieren. Netzwerk-, Anmelde- und Decoderfehler verändern keine ZoneMinder-Einstellung.
 
-Antwortet ein erreichbarer ZoneMinder-RTSP-Server ausdrücklich mit `404 Stream Not Found`, meldet ZM Wall den Zustand direkt am betroffenen Stream. Für diesen Ausfall wird einmalig über die ZoneMinder-API `Monitor.RTSPServer` aus- und wieder eingeschaltet, anschließend der aktivierte Zustand kontrolliert und der Stream neu gestartet. Erst ein wieder empfangenes Videoframe setzt die Einmal-Sperre zurück. Netzwerk-, Anmelde- und Decoderfehler verändern keine ZoneMinder-Einstellung.
+## Diagnose und Betrieb
 
-Bei rotierenden Positionen wird der nächste RTSP-Stream fünf Sekunden vor dem Wechsel parallel und verdeckt aufgebaut. ZM Wall prüft ihn über die `mpv`-Steuerschnittstelle; das Fenster muss echte Videoframes rendern und mindestens 0,75 Sekunden stabil bereit sein. Beim Wechsel wird es über seine von `mpv` gemeldete X11-Fenster-ID angehoben. Der zuvor verwendete synchronisierte Aktivierungsaufruf wurde entfernt, da dessen zwei aufeinanderfolgende Ein-Sekunden-Zeitüberschreitungen die beobachtete Schwarzphase verursachen konnten. X11-Aufrufe sind nun auf 200 Millisekunden begrenzt und das alte Fenster wird nach einer Überlappung von 50 Millisekunden beendet. Ist die nächste Kamera noch nicht bereit, bleibt weiterhin das bisherige Bild sichtbar. Durch das auf fünf Sekunden begrenzte Preloading laufen die zusätzlichen Decoder nicht mehr während des gesamten Wechselintervalls.
+Die Diagnoseseite bietet:
 
-Ab Version `0.2.0-beta.13` protokolliert ZM Wall jeden Wechsel mit Millisekunden-Zeitstempeln. Erfasst werden Player-Start, erstes decodiertes Frame, verwendetes Hardware-Decoding, Preload-Bereitschaft, X11-Anhebung und Beenden des alten Players. Kamera-Zugangsdaten werden dabei nicht ausgegeben.
+- Einzelprüfung eines Streams und seines Hardwaredecoders
+- sequenzielle Prüfung aller aktivierten Kameras
+- Vergleich der tatsächlichen Streamauflösung mit der ZoneMinder-Konfiguration
+- kontrollierte Übernahme einer bestätigten Auflösung nach ZoneMinder
+- erneute RTSP-Registrierung mit temporären berechtigten Zugangsdaten
+- LAN-/WLAN-Status, IPv4-Adresse, Gateway, Linkgeschwindigkeit und WLAN-Details
+- bereinigte Berichte ohne RTSP-Adressen oder Zugangsdaten
 
-Ab Version `0.2.0-beta.14` besitzt jede Grid-Position ein dauerhaftes, nicht von Openbox verwaltetes X11-Containerfenster. Die aktiven und vorgepufferten mpv-Instanzen rendern in getrennte Kindflächen dieses Containers. Der Wechsel erfolgt direkt innerhalb des X-Servers; `xdotool` und ein Wechsel zwischen eigenständigen Top-Level-Fenstern sind dafür nicht mehr erforderlich. Kann der eingebettete Modus auf einem System nicht initialisiert werden, fällt ZM Wall automatisch auf die bisherige Fenstersteuerung zurück.
-
-Ab Version `0.2.0-beta.15` enthält der Diagnoseeintrag für das erste Frame zusätzlich Videocodec, Codecprofil, Decoder, Auflösung, Pixelformat sowie den aktiven Hardwaredecoder und dessen Ausgabe-Interop. Damit lassen sich nicht hardwarebeschleunigte Kamerastreams erkennen, ohne RTSP-Zugangsdaten zu protokollieren.
-
-Ab Version `0.2.0-beta.16` zeigt jede Display-Karte in der Weboberfläche live an, ob ihre aktiven Streams tatsächlich über CPU, GPU oder gemischt dekodiert werden. Die erkannte CPU beziehungsweise GPU wird mit einer lesbaren Modellbezeichnung ausgegeben; der Tooltip schlüsselt die Nutzung pro Kamera auf. ZM Wall lässt mpv hardwareunabhängig zuerst einen direkt angebundenen Hardwaredecoder und anschließend eine kompatible Copy-Variante versuchen. Nicht unterstützte Streams fallen weiterhin zuverlässig auf Software-Decoding zurück.
-
-Ab Version `0.2.0-beta.17` wird die Copy-Variante als eigener zweiter Startversuch ausgeführt. Erkennt ZM Wall beim ersten Frame eines Streams Software-Decoding, wird nur dieser Stream verdeckt mit `auto-copy` neu aufgebaut. Das bisherige Bild bleibt sichtbar, bis der zweite Versuch stabile Frames liefert; ein erfolgloser Copy-Versuch wird nicht wiederholt.
-
-Ab Version `0.2.0-beta.18` wird die Decoderkette aus der erkannten Hardware und den tatsächlich installierten Treibern gebildet. Auf Intel-Systemen mit vorhandenem Legacy-Treiber testet ZM Wall nach einem gescheiterten Standard- und Copy-Versuch zusätzlich `i965` mit direkter VAAPI- sowie VAAPI-Copy-Ausgabe. Die Versuche erfolgen weiterhin pro Stream und verdeckt; AMD-, NVIDIA- und andere Systeme erhalten keine Intel-spezifischen Optionen. Die Diagnose protokolliert außerdem die jeweils getestete Strategie.
-
-Ab Version `0.2.0-beta.19` steht der tatsächlich verwendete Decoder zusätzlich direkt an jeder zugeordneten Kamera im Grid. Die aktuell laufende Kamera zeigt `GPU` oder `CPU`; andere Kameras derselben Rotationsposition werden als `wartet` markiert. Der Tooltip nennt bei GPU-Decoding das erkannte Modell und die aktive mpv-Methode.
-
-Ab Version `0.2.0-beta.20` zeigt jede Display-Karte dauerhaft die erkannte CPU und GPU mit Modellbezeichnung, unabhängig von der momentanen Streambelegung. Der Decoderstatus bleibt streambezogen. `wartet` bedeutet, dass für diese Kamera kein Player läuft und sie keine zusätzliche Decoderlast verursacht; während des fünfsekündigen Vorabstarts zeigt die Kamera ausdrücklich `puffert` beziehungsweise `CPU · puffert` oder `GPU · puffert`.
-
-Ab Version `0.2.0-beta.21` kann `diagnose-stream.py` einen Kamerastream unverändert und ohne Software-Fallback gegen die verfügbaren Intel-VAAPI-Treiber prüfen. Das Werkzeug liest die bestehende Konfiguration, übergibt die kennworthaltige RTSP-URL über stdin an mpv und entfernt URL, Benutzername sowie Kennwort nochmals aus der Ausgabe. Es ändert weder Kamera- noch ZM-Wall-Einstellungen.
-
-Ab Version `0.2.0-beta.22` ist diese Streamdiagnose über den kleinen Link unterhalb der Versionsnummer erreichbar. Auf der geschützten Diagnoseseite lässt sich eine RTSP-Kamera auswählen und prüfen; der bereinigte Bericht kann direkt kopiert oder als Logdatei heruntergeladen werden.
-
-Ab Version `0.2.0-beta.23` führt die Diagnoseseite zusätzlich einen isolierten VAAPI-Versuch mit deaktivierter FFmpeg-Hardwareprofilprüfung aus. Dieser Test verändert weder die normale Wiedergabe noch die gespeicherte Decoderstrategie. Er zeigt, ob ein von FFmpeg abgelehntes, von der GPU aber gemeldetes H.264-Profil technisch dekodiert werden kann.
-
-Ab Version `0.2.0-beta.24` verwendet die automatische Intel-Decoderkette den in der Diagnose bestätigten Profil-Fallback. Scheitern `auto` und `auto-copy` an der FFmpeg-Profilprüfung, wird der Stream verdeckt mit dem Standard-VAAPI-Treiber, `vaapi-copy` und deaktivierter Profilprüfung aufgebaut. Erst wenn auch dieser Versuch fehlschlägt, werden weitere installierte Treiber oder CPU-Decoding verwendet.
-
-Version `0.3.0-beta` markiert den erreichten Meilenstein aus unterbrechungsfreiem Kamerawechsel, verdecktem Stream-Preloading, automatischer hardwareabhängiger Decoderwahl und streambezogener CPU-/GPU-Anzeige. Die integrierte Webdiagnose ermöglicht die Prüfung problematischer Kamerastreams direkt auf dem Zielsystem.
-
-Ab Version `0.3.0-beta.1` steht die Weboberfläche auf Deutsch und Englisch zur Verfügung. Ohne manuelle Auswahl folgt sie der vom Browser gemeldeten System-/Vorzugsprache; die Auswahl in der Kopfzeile wird auf dem Verwaltungsgerät gespeichert.
-
-Ab Version `0.3.0-beta.2` werden bei einer gespeicherten Layoutänderung alle Player und Preload-Flächen des vorherigen Layouts verworfen, bevor die neue Belegung gestartet wird. Dadurch kann eine verschobene Kamera nicht gleichzeitig an ihrer alten und neuen Grid-Position sichtbar bleiben. Eine zusätzliche Laufzeitprüfung beendet veraltete Player, sobald derselbe Stream einer anderen Position gehört. Das unterbrechungsfreie Preloading bei der normalen Kamerarotation bleibt unverändert aktiv.
-
-Jede Grid-Position kann eine oder mehrere Kameras enthalten. Bei mehreren Kameras wechselt ZM Wall nach dem für das betreffende Display eingestellten Intervall zur nächsten Kamera und beginnt nach der letzten wieder von vorn. Der Mindestwert beträgt fünf Sekunden. Ein einzelner Stream bleibt dauerhaft sichtbar.
-
-## Betrieb und Diagnose
-
-Unter **Anzeige aktiv** wird die aktuelle Netzwerkanbindung des Anzeigerechners live dargestellt. Bei gleichzeitig verbundenem LAN und WLAN erscheinen beide Interfaces. Die Streamdiagnose ergänzt IPv4-Adresse, Gateway, Linkgeschwindigkeit, Standardroute und – sofern verfügbar – WLAN-SSID, Signalstärke und TX-Bitrate. Virtuelle Docker-Interfaces ohne Standardroute werden ausgeblendet.
-
-Auf der Diagnoseseite kann neben einer detaillierten GPU-Einzelprüfung auch **Alle Kameras prüfen** gestartet werden. Diese Sammeldiagnose untersucht die von ZoneMinder gelieferten Restreams nacheinander und ohne Hardwaredecoder. Erreichbarkeit, ZoneMinder-Status, Streammetadaten und Auflösungsvergleich werden getrennt angezeigt. Dadurch kann eine ausgelastete oder inkompatible GPU nicht mehr als vermeintlicher Auflösungsfehler erscheinen. Die Übersicht lässt sich ohne RTSP-Adressen, Zugangsdaten oder Schaltflächentexte als TSV herunterladen.
-
-Weicht die erfolgreich geprüfte Streamauflösung von `Monitor.Width` und `Monitor.Height` ab, kann die erkannte Auflösung für genau diese Kamera ausdrücklich bestätigt und über die ZoneMinder-API übernommen werden. ZM Wall liest den Monitor danach erneut ein und speichert den Wert lokal nur, wenn ZoneMinder die Änderung bestätigt. Eine automatische Massenänderung während der normalen Synchronisierung findet bewusst nicht statt; der verwendete ZoneMinder-Benutzer benötigt für diese Aktion Bearbeitungsrechte.
-
-Die wichtigsten Dateien:
+Wichtige Pfade:
 
 ```text
 /opt/zmwall/                       Programm
 /etc/zmwall.env                    Laufzeitkonfiguration
-/var/lib/zmwall/zmwall.db          ZoneMinder-, Kamera- und Grid-Konfiguration
+/var/lib/zmwall/zmwall.db          Konfiguration und Layouts
 /var/lib/zmwall/zmwall.log         Programm- und Player-Log
-/etc/lightdm/lightdm.conf.d/50-zmwall.conf
+/var/lib/zmwall/update.log         Update-Protokoll
 ```
 
-Prüfen, ob Displays erkannt werden:
+Displays prüfen:
 
 ```bash
 sudo -u zmwall DISPLAY=:0 xrandr --query
@@ -177,42 +126,33 @@ Log beobachten:
 sudo tail -f /var/lib/zmwall/zmwall.log
 ```
 
-Einen erzeugten Stream unabhängig testen (Kennwort nicht in gemeinsam genutzte Shell-History übernehmen):
+## Lokales HTTPS
 
-```bash
-mpv 'rtsp://SERVER:20000/100?username=BENUTZER&password=PASSWORT'
+Nginx stellt die Weboberfläche auf Port 443 bereit; der Python-Webdienst bleibt auf `127.0.0.1:8080` beschränkt. Der Installer erzeugt eine lokale CA und ein automatisch erneuertes Serverzertifikat. Die öffentliche CA kann auf Verwaltungsgeräten einmalig als vertrauenswürdig eingerichtet werden:
+
+```text
+https://IP-DES-ANZEIGERECHNERS/zmwall-local-ca.crt
 ```
 
-Bei selbst signierten HTTPS-Zertifikaten kann die TLS-Prüfung je ZoneMinder-Verbindung deaktiviert werden. Im normalen Betrieb sollte sie aktiviert bleiben.
+Der private CA-Schlüssel unter `/etc/zmwall/tls/zmwall-local-ca.key` darf den Anzeigerechner nicht verlassen.
 
 ## Aktualisierung
 
-Eine installierte ZM Wall wird direkt aus dem offiziellen Git-Repository aktualisiert:
+Über die Schaltfläche in der Kopfzeile kann jederzeit nach Aktualisierungen gesucht und ein verfügbares Fast-Forward-Update installiert werden. Alternativ:
 
 ```bash
 sudo /opt/zmwall/update.sh
 ```
 
-Beim erstmaligen Wechsel von einer älteren Version, in der `update.sh` noch nicht enthalten ist:
-
-```bash
-cd /opt/zmwall
-sudo -u zmwall git pull --ff-only origin main
-sudo ./update.sh
-```
-
-Das Skript prüft Repository und Branch, akzeptiert ausschließlich Fast-Forward-Updates von `noxare/ZMWall`, aktualisiert die Python-Abhängigkeiten und startet danach die grafische ZMWall-Sitzung neu. `/etc/zmwall.env`, Zertifikate und die Datenbank unter `/var/lib/zmwall` bleiben dabei erhalten. Bei lokalen Änderungen an verwalteten Programmdateien bricht das Update ab, statt diese zu überschreiben.
-
-Die Update-Funktion ist oben rechts in der Kopfzeile jederzeit sichtbar und erlaubt auch eine sofortige manuelle Prüfung. Zusätzlich prüft die Weboberfläche im Hintergrund alle fünf Minuten auf neue Commits in `main`. Ist ein Fast-Forward-Update verfügbar, wechselt die Schaltfläche zu **Update verfügbar · installieren**. Erst nach der Bestätigung wird das Update ausgeführt. Dabei wird nur der ZMWall-Web-/Player-Prozess beendet und durch den vorhandenen Openbox-Wächter automatisch neu gestartet; der Rechner, LightDM und Xorg werden nicht neu gestartet. Das Update-Protokoll liegt unter `/var/lib/zmwall/update.log`.
+Konfiguration, Datenbank und Zertifikate bleiben erhalten. Lokale Änderungen an verwalteten Programmdateien führen zum Abbruch, statt überschrieben zu werden.
 
 ## Sicherheit
 
-- Die Erstkonfiguration ist nur solange offen, bis mindestens eine ZoneMinder-Verbindung erfolgreich synchronisiert wurde. Deshalb sollte ZM Wall trotzdem nur im vertrauenswürdigen LAN oder Verwaltungs-VLAN betrieben werden.
-- Danach wird jeder Zugriff per HTTP-Basisauthentifizierung abgefragt und das eingegebene Benutzername/Kennwort-Paar direkt gegen ZoneMinder geprüft. Es existiert kein separates lokales Web-Kennwort.
-- Die HTTP-Basisauthentifizierung wird ausschließlich innerhalb der lokalen HTTPS-Verbindung übertragen.
-- ZoneMinder-Zugangsdaten für API und RTSP werden lokal in `/var/lib/zmwall/zmwall.db` gespeichert. Verzeichnis und Datei sind ausschließlich für den Dienstbenutzer zugänglich.
-- Die kennworthaltige RTSP-URL wird `mpv` über die Standardeingabe übergeben und steht daher nicht in dessen Prozessargumenten.
-- Empfohlen ist ein eigener ZoneMinder-Benutzer, der nur die anzuzeigenden Kameras lesen darf.
+- ZM Wall sollte nur in einem vertrauenswürdigen LAN oder Verwaltungs-VLAN betrieben werden.
+- Nach der ersten Synchronisierung werden Anmeldedaten direkt gegen ZoneMinder geprüft; es existiert kein separates Webkennwort.
+- API- und RTSP-Zugangsdaten liegen geschützt in `/var/lib/zmwall/zmwall.db`.
+- Kennworthaltige RTSP-URLs erscheinen weder in Prozessargumenten noch in Diagnoseberichten.
+- Empfohlen ist ein eigener ZoneMinder-Benutzer mit den minimal erforderlichen Rechten.
 
 ## Deinstallation
 
@@ -220,4 +160,4 @@ Die Update-Funktion ist oben rechts in der Kopfzeile jederzeit sichtbar und erla
 sudo bash /opt/zmwall/uninstall.sh
 ```
 
-Die Deinstallation entfernt das Programm und den Autostart, lässt `/var/lib/zmwall` als Sicherung aber bestehen.
+Die Deinstallation entfernt Programm und Autostart, lässt `/var/lib/zmwall` als Sicherung bestehen.
