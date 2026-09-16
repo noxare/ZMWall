@@ -4,7 +4,7 @@
 
 [Detaillierter Änderungsverlauf](CHANGELOG.md)
 
-Aktueller Entwicklungsstand: **0.3.0-beta.21**
+Aktueller Entwicklungsstand: **0.3.0-beta.22**
 
 ZM Wall macht aus einem schlanken Debian-Rechner eine über das Netzwerk konfigurierbare RTSP-Videowand für ZoneMinder. Jeder physische Monitor kann ein eigenes Raster und eine eigene Kamerabelegung erhalten. ZM Wall verwendet die integrierte RTSP-Restream-Funktion von ZoneMinder: Die Streams werden nicht zusätzlich direkt von den Kameras abgerufen, sondern von ZoneMinder bereitgestellt und mit `mpv` wiedergegeben. Die Weboberfläche dient zur Verwaltung.
 

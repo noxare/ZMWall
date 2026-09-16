@@ -8,6 +8,16 @@ This changelog documents ZM Wall's features, operational flows, technical decisi
 
 - No changes yet.
 
+## 0.3.0-beta.22 – 2026-09-16
+
+- Double-clicking a running player expands its grid position to the associated physical monitor. Another double-click or `Esc` restores the exact grid, while other monitors remain unchanged.
+- Camera rotation pauses for the expanded grid position. Existing players stay alive, so entering or leaving fullscreen does not require another RTSP connection.
+- A subtle usage hint briefly appears at the top of every monitor after startup and layout changes. Moving the pointer to the top screen edge reveals it again with a cooldown.
+- Localized hints explain fullscreen, returning to the grid, and the existing logout shortcut in German or English.
+- Language selection is now stored centrally in the ZM Wall database and shared by the web interface and physical wall. Legacy browser cookies are removed on the next language change.
+- mpv's own mouse and keyboard bindings are disabled for embedded players so they cannot conflict with ZM Wall window handling.
+- Regression coverage for monitor-scoped fullscreen, double-click detection, and persistent shared language. A total of 69 automated tests.
+
 ## 0.3.0-beta.21 – 2026-09-16
 
 - Adding a display now offers compact visual grid presets for `2×2`, `3×2`, `3×3`, `4×3`, and `4×4`, plus a custom size.

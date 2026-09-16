@@ -102,6 +102,37 @@ def test_configured_output_is_hidden_until_screen_is_deleted(monkeypatch, tmp_pa
     assert "<option>HDMI-1</option>" in deleted.text
 
 
+def test_language_is_persisted_for_web_and_physical_wall(monkeypatch, tmp_path):
+    db_path = str(tmp_path / "language.db")
+    web = importlib.import_module("zmwall.app")
+    web.DB_PATH = db_path
+    init_db(db_path)
+    selected = []
+    monkeypatch.setattr(web.manager, "set_language", lambda language: selected.append(language))
+    monkeypatch.setattr(web, "detect_outputs", lambda: [])
+    monkeypatch.setattr(web.manager, "runtime_status", lambda: {
+        "hardware": {"cpu": "Test CPU", "gpu": "Test GPU", "backend": "mpv Auto"},
+        "network": {"state": "offline", "connections": []},
+        "screens": {},
+    })
+    client = web.app.test_client()
+
+    response = client.post("/language", data={"language": "en", "next": "/"})
+    assert response.status_code == 302
+    with connect(db_path) as db:
+        settings = {
+            row["key"]: row["value"]
+            for row in db.execute("SELECT key,value FROM app_settings")
+        }
+    assert settings["language_choice"] == "en"
+    assert settings["wall_language"] == "en"
+    assert selected == ["en"]
+
+    page = client.get("/", headers={"Accept-Language": "de"})
+    assert '<option value="en" selected>English</option>' in page.text
+    assert "Add display" in page.text
+
+
 def test_resolution_update_uses_only_verified_server_side_probe(monkeypatch, tmp_path):
     db_path = str(tmp_path / "resolution.db")
     web = importlib.import_module("zmwall.app")

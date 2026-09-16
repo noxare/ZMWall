@@ -8,6 +8,16 @@ Dieses Changelog dokumentiert die Entwicklung von ZM Wall mit Funktionen, Betrie
 
 - Noch keine Änderungen.
 
+## 0.3.0-beta.22 – 2026-09-16
+
+- Ein Doppelklick auf einen laufenden Player vergrößert dessen Grid-Position auf den zugehörigen physischen Monitor. Ein weiterer Doppelklick oder `Esc` stellt das Grid exakt wieder her; andere Monitore bleiben unverändert.
+- Der Kamerawechsel der vergrößerten Grid-Position pausiert im Vollbild. Bereits laufende Player bleiben erhalten, sodass Vollbild und Rückkehr keinen neuen RTSP-Aufbau benötigen.
+- Nach Start und Layoutänderungen erscheint am oberen Rand jedes Monitors kurz ein dezenter Bedienhinweis. Eine Bewegung an den oberen Bildschirmrand blendet ihn mit Zeitbegrenzung erneut ein.
+- Die Hinweise erklären Vollbild, Rückkehr und den vorhandenen Abmelde-Shortcut auf Deutsch oder Englisch.
+- Die Sprachauswahl wird jetzt zentral in der ZM-Wall-Datenbank gespeichert und gemeinsam von Weboberfläche und physischer Wall verwendet. Alte Browser-Cookies werden beim nächsten Sprachwechsel entfernt.
+- mpvs eigene Maus- und Tastaturbelegung ist für die eingebetteten Player deaktiviert, damit sie nicht mit der ZM-Wall-Fenstersteuerung kollidiert.
+- Regressionstests für Monitor-begrenztes Vollbild, Doppelklick-Erkennung und die persistente gemeinsame Sprache. Insgesamt 69 automatisierte Tests.
+
 ## 0.3.0-beta.21 – 2026-09-16
 
 - Beim Hinzufügen eines Displays stehen kompakte visuelle Grid-Vorgaben für `2×2`, `3×2`, `3×3`, `4×3` und `4×4` sowie eine benutzerdefinierte Größe zur Verfügung.

@@ -16,9 +16,10 @@ from typing import Any
 from urllib.parse import quote, urlparse
 
 import requests
-from Xlib import X, display as xdisplay, error as xerror
+from Xlib import X, XK, display as xdisplay, error as xerror
 
 from .network import detect_network_status
+from .i18n import translate
 
 
 PRELOAD_STABLE_SECONDS = 0.75
@@ -29,6 +30,8 @@ MAX_CONCURRENT_HWDEC_UPGRADES = 2
 HWDEC_START_TIMEOUT_SECONDS = 30.0
 STREAM_START_TIMEOUT_SECONDS = 30.0
 STREAM_STALL_TIMEOUT_SECONDS = 20.0
+DOUBLE_CLICK_MILLISECONDS = 400
+PLAYER_HINT_MILLISECONDS = 7000
 
 
 def _clean_hardware_name(value: str) -> str:
@@ -211,6 +214,10 @@ CREATE TABLE IF NOT EXISTS screens (
   rotation_seconds INTEGER NOT NULL DEFAULT 30,
   enabled INTEGER NOT NULL DEFAULT 1
 );
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS tiles (
   screen_id INTEGER NOT NULL REFERENCES screens(id) ON DELETE CASCADE,
   position INTEGER NOT NULL,
@@ -270,6 +277,26 @@ def connect(db_path: str) -> sqlite3.Connection:
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys=ON")
     return db
+
+
+def get_setting(db_path: str, key: str, default: str | None = None) -> str | None:
+    if not Path(db_path).exists():
+        return default
+    try:
+        with connect(db_path) as db:
+            row = db.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
+    except sqlite3.Error:
+        return default
+    return str(row["value"]) if row else default
+
+
+def set_setting(db_path: str, key: str, value: str) -> None:
+    with connect(db_path) as db:
+        db.execute(
+            """INSERT INTO app_settings(key,value) VALUES(?,?)
+               ON CONFLICT(key) DO UPDATE SET value=excluded.value""",
+            (key, value),
+        )
 
 
 def init_db(db_path: str) -> None:
@@ -685,6 +712,7 @@ class StreamSpec:
     url: str
     label: str = "unbekannt"
     geometry: tuple[int, int, int, int] | None = None
+    display_geometry: tuple[int, int, int, int] | None = None
     stream_key: str = "unbekannt"
     decode_strategy: str = "auto"
 
@@ -721,8 +749,17 @@ class X11WindowHost:
         self.screen = self.display.screen()
         self.root = self.screen.root
         self.tiles: dict[str, dict[str, Any]] = {}
+        self.surface_tiles: dict[int, str] = {}
+        self.fullscreen_keys: set[str] = set()
+        self.last_click: tuple[str, int] | None = None
+        self.last_top_hint: dict[str, int] = {}
 
-    def _tile(self, key: str, geometry: tuple[int, int, int, int]) -> dict[str, Any]:
+    def _tile(
+        self,
+        key: str,
+        geometry: tuple[int, int, int, int],
+        display_geometry: tuple[int, int, int, int] | None = None,
+    ) -> dict[str, Any]:
         x, y, width, height = geometry
         tile = self.tiles.get(key)
         if tile is None:
@@ -734,35 +771,50 @@ class X11WindowHost:
             )
             window.set_wm_name(f"ZMWall Tile {key}")
             window.map()
-            tile = {"window": window, "geometry": geometry, "surfaces": set()}
+            tile = {
+                "window": window, "geometry": geometry,
+                "display_geometry": display_geometry or geometry, "surfaces": set(),
+            }
             self.tiles[key] = tile
             self.display.sync()
-        elif tile["geometry"] != geometry:
-            tile["window"].configure(x=x, y=y, width=width, height=height)
-            for surface in tuple(tile["surfaces"]):
-                surface.configure(x=0, y=0, width=width, height=height)
-            tile["geometry"] = geometry
-            self.display.sync()
+        else:
+            display_changed = display_geometry is not None and tile["display_geometry"] != display_geometry
+            if display_geometry is not None:
+                tile["display_geometry"] = display_geometry
+            if tile["geometry"] != geometry or display_changed:
+                tile["geometry"] = geometry
+                if key not in self.fullscreen_keys:
+                    tile["window"].configure(x=x, y=y, width=width, height=height)
+                else:
+                    x, y, width, height = tile["display_geometry"]
+                    tile["window"].configure(x=x, y=y, width=width, height=height)
+                for surface in tuple(tile["surfaces"]):
+                    surface.configure(x=0, y=0, width=width, height=height)
+                self.display.sync()
         return tile
 
     def create_surface(
         self,
         key: str,
         geometry: tuple[int, int, int, int],
+        display_geometry: tuple[int, int, int, int] | None = None,
         below: Any | None = None,
     ) -> Any:
-        tile = self._tile(key, geometry)
-        _, _, width, height = geometry
+        tile = self._tile(key, geometry, display_geometry)
+        effective_geometry = tile["display_geometry"] if key in self.fullscreen_keys else geometry
+        _, _, width, height = effective_geometry
         surface = tile["window"].create_window(
             0, 0, width, height, 0, self.screen.root_depth,
             X.InputOutput, X.CopyFromParent,
             background_pixel=self.screen.black_pixel,
             override_redirect=1,
+            event_mask=X.ButtonPressMask | X.KeyPressMask | X.PointerMotionMask,
         )
         if below is not None:
             surface.configure(sibling=below, stack_mode=X.Below)
         surface.map()
         tile["surfaces"].add(surface)
+        self.surface_tiles[int(surface.id)] = key
         self.display.sync()
         return surface
 
@@ -771,6 +823,7 @@ class X11WindowHost:
         self.display.sync()
 
     def destroy_surface(self, surface: Any) -> None:
+        self.surface_tiles.pop(int(surface.id), None)
         for tile in self.tiles.values():
             tile["surfaces"].discard(surface)
         try:
@@ -779,9 +832,70 @@ class X11WindowHost:
         except xerror.BadWindow:
             pass
 
+    def toggle_fullscreen(self, key: str) -> bool:
+        """Expand one tile to its physical output or restore its saved grid geometry."""
+        tile = self.tiles.get(key)
+        if tile is None:
+            return False
+        if key in self.fullscreen_keys:
+            x, y, width, height = tile["geometry"]
+            self.fullscreen_keys.discard(key)
+        else:
+            for other_key in tuple(self.fullscreen_keys):
+                other = self.tiles.get(other_key)
+                if other and other["display_geometry"] == tile["display_geometry"]:
+                    self.toggle_fullscreen(other_key)
+            x, y, width, height = tile["display_geometry"]
+            self.fullscreen_keys.add(key)
+        tile["window"].configure(x=x, y=y, width=width, height=height, stack_mode=X.Above)
+        for surface in tuple(tile["surfaces"]):
+            surface.configure(x=0, y=0, width=width, height=height)
+        self.display.sync()
+        return key in self.fullscreen_keys
+
+    def process_events(self) -> list[tuple[str, bool | None]]:
+        """Handle double-click fullscreen and Escape without involving Openbox."""
+        actions: list[tuple[str, bool | None]] = []
+        while self.display.pending_events():
+            event = self.display.next_event()
+            window_id = int(getattr(getattr(event, "window", None), "id", 0))
+            key = self.surface_tiles.get(window_id)
+            if event.type == X.ButtonPress and getattr(event, "detail", 0) == 1 and key:
+                timestamp = int(getattr(event, "time", 0))
+                previous = self.last_click
+                self.last_click = (key, timestamp)
+                if previous and previous[0] == key and 0 <= timestamp - previous[1] <= DOUBLE_CLICK_MILLISECONDS:
+                    self.last_click = None
+                    try:
+                        event.window.set_input_focus(X.RevertToParent, X.CurrentTime)
+                    except (OSError, xerror.XError):
+                        pass
+                    actions.append((key, self.toggle_fullscreen(key)))
+            elif event.type == X.KeyPress and key in self.fullscreen_keys:
+                keysym = self.display.keycode_to_keysym(int(getattr(event, "detail", 0)), 0)
+                if keysym == XK.string_to_keysym("Escape"):
+                    actions.append((key, self.toggle_fullscreen(key)))
+            elif event.type == X.MotionNotify and key:
+                tile = self.tiles.get(key)
+                at_physical_top = bool(tile) and (
+                    key in self.fullscreen_keys
+                    or tile["geometry"][1] == tile["display_geometry"][1]
+                )
+                if at_physical_top and int(getattr(event, "event_y", 9999)) <= 12:
+                    screen_id = key.split(":", 1)[0]
+                    timestamp = int(getattr(event, "time", 0))
+                    last_shown = self.last_top_hint.get(screen_id, -15000)
+                    if timestamp - last_shown >= 15000:
+                        self.last_top_hint[screen_id] = timestamp
+                        actions.append((key, None))
+        return actions
+
     def retain_tiles(self, keys: set[str]) -> None:
         for key in set(self.tiles) - keys:
             tile = self.tiles.pop(key)
+            self.fullscreen_keys.discard(key)
+            for surface in tile["surfaces"]:
+                self.surface_tiles.pop(int(surface.id), None)
             try:
                 tile["window"].destroy()
             except xerror.BadWindow:
@@ -795,6 +909,9 @@ class X11WindowHost:
             except xerror.BadWindow:
                 pass
         self.tiles.clear()
+        self.surface_tiles.clear()
+        self.fullscreen_keys.clear()
+        self.last_top_hint.clear()
         self.display.flush()
         self.display.close()
 
@@ -815,11 +932,57 @@ class PlayerManager:
         self.decode_hardware["backend"] = video_backend_name(
             self.decode_hardware, self.hwdec_strategies,
         )
+        self.language = get_setting(db_path, "wall_language", "de") or "de"
+        self.interaction_hints_shown: set[str] = set()
         self.hwdec_preferences = self._load_hwdec_preferences()
         self.rtsp_recovery_attempted: set[str] = set()
         self.rtsp_recovery_in_progress: set[str] = set()
         self.rtsp_recovery_status: dict[str, dict[str, str]] = {}
         self.rtsp_recovery_lock = threading.Lock()
+
+    def set_language(self, language: str) -> None:
+        self.language = language if language in {"de", "en"} else "de"
+        self.interaction_hints_shown.clear()
+        self.reload_event.set()
+
+    def _show_player_text(self, player: Player | None, key: str, duration: int) -> None:
+        if player is None or player.process.poll() is not None:
+            return
+        self._ipc(player, ["set_property", "osd-align-x", "center"])
+        self._ipc(player, ["set_property", "osd-align-y", "top"])
+        self._ipc(player, ["set_property", "osd-margin-y", 12])
+        self._ipc(player, ["show-text", translate(self.language, key), duration])
+
+    def _show_interaction_hint(self, player: Player) -> None:
+        screen_id, _, position = player.tile_key.partition(":")
+        if position != "0" or screen_id in self.interaction_hints_shown:
+            return
+        self._show_player_text(player, "player_interaction_hint", PLAYER_HINT_MILLISECONDS)
+        self.interaction_hints_shown.add(screen_id)
+
+    def _process_window_events(self) -> None:
+        if self.window_host is None:
+            return
+        try:
+            actions = self.window_host.process_events()
+        except (OSError, xerror.XError):
+            return
+        for key, fullscreen in actions:
+            player = self.players.get(key)
+            if fullscreen is None:
+                hint_key = (
+                    "player_fullscreen_exit_hint"
+                    if key in self.window_host.fullscreen_keys
+                    else "player_interaction_hint"
+                )
+                self._show_player_text(player, hint_key, 5000)
+            elif fullscreen:
+                self._show_player_text(player, "player_fullscreen_exit_hint", 5000)
+            if fullscreen is not None:
+                switch_log(
+                    key, player.label if player else "unknown",
+                    "fullscreen-toggle", active=fullscreen,
+                )
 
     def _load_hwdec_preferences(self) -> dict[str, str]:
         """Load only strategies valid for the GPU and drivers on this client."""
@@ -1130,6 +1293,8 @@ class PlayerManager:
         self.preloads.clear()
         if self.window_host is not None:
             self.window_host.retain_tiles(set())
+            self.window_host.last_top_hint.clear()
+        self.interaction_hints_shown.clear()
         switch_log("all", "layout", "layout-players-reset")
 
     def _terminate(self, player: Player | None) -> None:
@@ -1222,32 +1387,43 @@ class PlayerManager:
                         command = [
                             "mpv", "--no-config", "--no-audio", "--no-border", "--ontop",
                             "--keep-open=no", "--force-window=immediate",
+                            "--input-default-bindings=no",
                             "--force-window-position", "--auto-window-resize=no",
                             f"--screen-name={screen['output_name']}",
                             "--keepaspect=no", "--keepaspect-window=no", "--panscan=0",
                             "--video-zoom=0", "--no-osc", "--cursor-autohide=always",
+                            "--osd-font-size=18", "--osd-scale-by-window=no",
+                            "--osd-color=#DDFFFFFF", "--osd-outline-color=#B0000000",
                             "--profile=low-latency", *hwdec_arguments(decode_strategy),
                             "--demuxer-lavf-o=rtsp_transport=tcp,rw_timeout=15000000",
                             f"--geometry={geometry}",
                             "--msg-level=all=warn", "--playlist=-",
                         ]
-                        if position == (screen["rows"] * screen["cols"]) - 1:
-                            command.extend([
-                                "--osd-level=1", "--osd-msg1=Strg+Alt+Ende: Abmelden",
-                                "--osd-align-x=right", "--osd-align-y=bottom",
-                                "--osd-font-size=14", "--osd-scale-by-window=no",
-                                "--osd-margin-x=8", "--osd-margin-y=6",
-                                "--osd-color=#DDFFFFFF", "--osd-outline-color=#B0000000",
-                            ])
                         label = f"{camera['name']} (ID {camera['zm_id']})"
                         return StreamSpec(
-                            signature, command, url, label, (x, y, width, height),
-                            stream_key, decode_strategy,
+                            signature=signature, command=command, url=url, label=label,
+                            geometry=(x, y, width, height),
+                            display_geometry=(
+                                int(output["x"]), int(output["y"]),
+                                int(output["width"]), int(output["height"]),
+                            ),
+                            stream_key=stream_key, decode_strategy=decode_strategy,
                         )
 
                     now = time.monotonic()
-                    current_index = rotation_index(
-                        len(cameras), screen["rotation_seconds"], now=now
+                    tile_key = f"{screen['id']}:{position}"
+                    fullscreen_player = (
+                        self.players.get(tile_key)
+                        if self.window_host is not None and tile_key in self.window_host.fullscreen_keys
+                        else None
+                    )
+                    current_index = next(
+                        (
+                            index for index, camera in enumerate(cameras)
+                            if fullscreen_player is not None
+                            and str(camera["camera_key"]) == fullscreen_player.stream_key
+                        ),
+                        rotation_index(len(cameras), screen["rotation_seconds"], now=now),
                     )
                     next_index = (current_index + 1) % len(cameras)
                     current = make_spec(cameras[current_index])
@@ -1256,12 +1432,13 @@ class PlayerManager:
                         float(max(5, int(screen["rotation_seconds"]))),
                     )
                     should_preload = (
-                        len(cameras) > 1
+                        fullscreen_player is None
+                        and len(cameras) > 1
                         and seconds_until_rotation(screen["rotation_seconds"], now=now)
                         <= preload_window
                     )
                     upcoming = make_spec(cameras[next_index]) if should_preload else None
-                    desired[f"{screen['id']}:{position}"] = (current, upcoming)
+                    desired[tile_key] = (current, upcoming)
         return desired
 
     def _launch(self, key: str, spec: StreamSpec, hidden: bool) -> Player | None:
@@ -1279,7 +1456,7 @@ class PlayerManager:
             active_surface = self.players.get(key).surface if self.players.get(key) else None
             try:
                 surface = host.create_surface(
-                    key, spec.geometry,
+                    key, spec.geometry, spec.display_geometry,
                     below=active_surface if hidden else None,
                 )
                 command = [
@@ -1754,7 +1931,8 @@ class PlayerManager:
             if active and active.signature == current.signature:
                 # Also inspect permanently assigned streams. Previously only
                 # preloads were probed, which left their UI decoder state unknown.
-                self._ready(active)
+                if self._ready(active):
+                    self._show_interaction_hint(active)
                 if self._hwdec_start_timed_out(active):
                     # This can happen when a remembered GPU strategy is started
                     # directly after a layout reset but the current grid needs
@@ -1800,6 +1978,7 @@ class PlayerManager:
 
     def run(self) -> None:
         while not self.stop_event.is_set():
+            self._process_window_events()
             self.reconcile()
-            self.reload_event.wait(1)
+            self.reload_event.wait(0.25)
             self.reload_event.clear()

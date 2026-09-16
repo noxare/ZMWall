@@ -62,6 +62,95 @@ def test_geometry_uses_valid_signs_for_monitors_left_of_primary():
     assert format_geometry(640, 540, -1920, 0) == "640x540-1920+0"
 
 
+def test_embedded_tile_toggles_only_its_physical_monitor_fullscreen():
+    class FakeDisplay:
+        def sync(self):
+            pass
+
+    class FakeWindow:
+        def __init__(self):
+            self.configurations = []
+
+        def configure(self, **values):
+            self.configurations.append(values)
+
+    host = core.X11WindowHost.__new__(core.X11WindowHost)
+    host.display = FakeDisplay()
+    host.fullscreen_keys = set()
+    parent = FakeWindow()
+    surface = FakeWindow()
+    host.tiles = {
+        "1:2": {
+            "window": parent,
+            "geometry": (960, 0, 960, 540),
+            "display_geometry": (0, 0, 1920, 1080),
+            "surfaces": {surface},
+        }
+    }
+
+    assert host.toggle_fullscreen("1:2")
+    assert parent.configurations[-1] == {
+        "x": 0, "y": 0, "width": 1920, "height": 1080,
+        "stack_mode": core.X.Above,
+    }
+    assert surface.configurations[-1] == {"x": 0, "y": 0, "width": 1920, "height": 1080}
+
+    other_parent = FakeWindow()
+    other_surface = FakeWindow()
+    host.tiles["2:0"] = {
+        "window": other_parent,
+        "geometry": (1920, 0, 1920, 1080),
+        "display_geometry": (1920, 0, 1920, 1080),
+        "surfaces": {other_surface},
+    }
+    assert host.toggle_fullscreen("2:0")
+    assert host.fullscreen_keys == {"1:2", "2:0"}
+
+    assert not host.toggle_fullscreen("1:2")
+    assert host.fullscreen_keys == {"2:0"}
+    assert parent.configurations[-1] == {
+        "x": 960, "y": 0, "width": 960, "height": 540,
+        "stack_mode": core.X.Above,
+    }
+
+
+def test_two_left_clicks_toggle_embedded_tile_fullscreen():
+    class FakeWindow:
+        id = 99
+
+        def set_input_focus(self, *_args):
+            pass
+
+    class FakeEvent:
+        type = core.X.ButtonPress
+        detail = 1
+        window = FakeWindow()
+
+        def __init__(self, timestamp):
+            self.time = timestamp
+
+    class FakeDisplay:
+        def __init__(self):
+            self.events = [FakeEvent(1000), FakeEvent(1250)]
+
+        def pending_events(self):
+            return len(self.events)
+
+        def next_event(self):
+            return self.events.pop(0)
+
+    host = core.X11WindowHost.__new__(core.X11WindowHost)
+    host.display = FakeDisplay()
+    host.surface_tiles = {99: "1:0"}
+    host.fullscreen_keys = set()
+    host.last_click = None
+    toggled = []
+    host.toggle_fullscreen = lambda key: toggled.append(key) or True
+
+    assert host.process_events() == [("1:0", True)]
+    assert toggled == ["1:0"]
+
+
 def test_zoneminder_boolean_values():
     assert zm_enabled(1)
     assert zm_enabled("true")

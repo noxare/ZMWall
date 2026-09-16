@@ -14,8 +14,8 @@ from flask import Flask, Response, flash, g, jsonify, redirect, render_template,
 
 from . import __version__
 from .core import (
-    PlayerManager, api_url, connect, detect_outputs, init_db, parse_camera_keys,
-    sync_site, update_monitor_resolution,
+    PlayerManager, api_url, connect, detect_outputs, get_setting, init_db, parse_camera_keys,
+    set_setting, sync_site, update_monitor_resolution,
 )
 from .diagnostics import diagnose_all_cameras, diagnose_camera
 from .i18n import SUPPORTED_LANGUAGES, resolve_language, translate
@@ -44,7 +44,11 @@ update_state = {"state": "checking", "message_key": "update_searching"}
 
 def current_language() -> str:
     if "language" not in g:
-        g.language = resolve_language(request.cookies.get("zmwall_language"), request.accept_languages)
+        configured = get_setting(DB_PATH, "wall_language")
+        if configured in SUPPORTED_LANGUAGES:
+            g.language = configured
+        else:
+            g.language = resolve_language(None, request.accept_languages)
     return g.language
 
 
@@ -169,7 +173,7 @@ def inject_language() -> dict[str, object]:
     return {
         "t": t,
         "language": current_language(),
-        "language_choice": request.cookies.get("zmwall_language", "auto"),
+        "language_choice": get_setting(DB_PATH, "language_choice", "auto"),
     }
 
 
@@ -354,20 +358,22 @@ def index():
 
 @app.post("/language")
 def set_language():
-    """Store an explicit UI language or return to browser/system detection."""
+    """Persist one language for both the web UI and the physical video wall."""
     choice = request.form.get("language", "auto")
     if choice not in (*SUPPORTED_LANGUAGES, "auto"):
         choice = "auto"
     next_path = request.form.get("next", "/")
     if not next_path.startswith("/") or next_path.startswith("//"):
         next_path = "/"
+    wall_language = (
+        resolve_language(None, request.accept_languages)
+        if choice == "auto" else choice
+    )
+    set_setting(DB_PATH, "language_choice", choice)
+    set_setting(DB_PATH, "wall_language", wall_language)
+    manager.set_language(wall_language)
     response = redirect(next_path)
-    if choice == "auto":
-        response.delete_cookie("zmwall_language", samesite="Lax")
-    else:
-        response.set_cookie(
-            "zmwall_language", choice, max_age=31536000, httponly=True, samesite="Lax"
-        )
+    response.delete_cookie("zmwall_language", samesite="Lax")
     return response
 
 
