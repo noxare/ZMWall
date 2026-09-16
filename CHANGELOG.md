@@ -8,6 +8,14 @@ Dieses Changelog dokumentiert die Entwicklung von ZM Wall mit Funktionen, Betrie
 
 - Noch keine Änderungen.
 
+## 0.3.0-beta.23 – 2026-09-16
+
+- Ein eigener unsichtbarer X11-Eingabe-Layer liegt jetzt zuverlässig über den mpv-Flächen. Dadurch erreichen Mausbewegungen und Doppelklicks ZM Wall unabhängig davon, wie mpv sein Renderfenster verwaltet.
+- Alle belegten Grid-Felder werden über die konfigurierten Monitore hinweg fortlaufend nummeriert. Die kleine Nummer oben links bleibt bewusst dezent und wird beim Kamerawechsel nicht neu gezeichnet.
+- `Alt` halten, eine auch mehrstellige Feldnummer eingeben und `Alt` loslassen öffnet das gewählte Feld im Vollbild. Derselbe Ablauf schließt ein bereits vergrößertes Feld wieder; `Esc` und Doppelklick bleiben ebenfalls verfügbar.
+- Der lokalisierte Bedienhinweis reagiert nun auf eine normale Mausbewegung. Er wird in einem eigenen X11-Hinweisfenster statt im mpv-OSD dargestellt und funktioniert damit auch dann, wenn der Player keine OSD-Ereignisse annimmt.
+- Regressionstests decken den Eingabe-Layer, Doppelklick, Maus-Hinweis und mehrstellige `Alt`-Nummern ab. Insgesamt 71 automatisierte Tests.
+
 ## 0.3.0-beta.22 – 2026-09-16
 
 - Ein Doppelklick auf einen laufenden Player vergrößert dessen Grid-Position auf den zugehörigen physischen Monitor. Ein weiterer Doppelklick oder `Esc` stellt das Grid exakt wieder her; andere Monitore bleiben unverändert.

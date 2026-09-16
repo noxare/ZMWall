@@ -8,6 +8,14 @@ This changelog documents ZM Wall's features, operational flows, technical decisi
 
 - No changes yet.
 
+## 0.3.0-beta.23 – 2026-09-16
+
+- A dedicated invisible X11 input layer now sits reliably above the mpv surfaces. Mouse movement and double-clicks therefore reach ZM Wall regardless of how mpv manages its render window.
+- Occupied grid fields are numbered continuously across all configured monitors. The small number in the upper-left corner remains deliberately subtle and is not redrawn for camera rotations.
+- Hold `Alt`, type a field number including multiple digits, then release `Alt` to open that field in fullscreen. Repeating the sequence closes an already expanded field; `Esc` and double-click remain available as well.
+- The localized usage hint now reacts to ordinary pointer movement. It is rendered in a dedicated X11 hint window instead of mpv's OSD, so it also works when the player does not accept OSD events.
+- Regression coverage includes the input layer, double-clicking, pointer-triggered hints, and multi-digit `Alt` number shortcuts. A total of 71 automated tests.
+
 ## 0.3.0-beta.22 – 2026-09-16
 
 - Double-clicking a running player expands its grid position to the associated physical monitor. Another double-click or `Esc` restores the exact grid, while other monitors remain unchanged.

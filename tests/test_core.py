@@ -79,12 +79,16 @@ def test_embedded_tile_toggles_only_its_physical_monitor_fullscreen():
     host.fullscreen_keys = set()
     parent = FakeWindow()
     surface = FakeWindow()
+    number_window = FakeWindow()
+    input_window = FakeWindow()
     host.tiles = {
         "1:2": {
             "window": parent,
             "geometry": (960, 0, 960, 540),
             "display_geometry": (0, 0, 1920, 1080),
             "surfaces": {surface},
+            "number_window": number_window,
+            "input_window": input_window,
         }
     }
 
@@ -97,11 +101,15 @@ def test_embedded_tile_toggles_only_its_physical_monitor_fullscreen():
 
     other_parent = FakeWindow()
     other_surface = FakeWindow()
+    other_number = FakeWindow()
+    other_input = FakeWindow()
     host.tiles["2:0"] = {
         "window": other_parent,
         "geometry": (1920, 0, 1920, 1080),
         "display_geometry": (1920, 0, 1920, 1080),
         "surfaces": {other_surface},
+        "number_window": other_number,
+        "input_window": other_input,
     }
     assert host.toggle_fullscreen("2:0")
     assert host.fullscreen_keys == {"1:2", "2:0"}
@@ -141,14 +149,119 @@ def test_two_left_clicks_toggle_embedded_tile_fullscreen():
 
     host = core.X11WindowHost.__new__(core.X11WindowHost)
     host.display = FakeDisplay()
-    host.surface_tiles = {99: "1:0"}
+    host.event_tiles = {99: "1:0"}
+    host.tiles = {"1:0": {"input_window": FakeWindow()}}
+    host.number_tiles = {}
     host.fullscreen_keys = set()
     host.last_click = None
+    host.last_top_hint = {}
+    host.alt_active = False
+    host.alt_digits = ""
+    host.hints = {}
+    host.hint_windows = {}
     toggled = []
     host.toggle_fullscreen = lambda key: toggled.append(key) or True
 
     assert host.process_events() == [("1:0", True)]
     assert toggled == ["1:0"]
+
+
+def test_alt_number_release_toggles_globally_numbered_tile():
+    class FakeWindow:
+        id = 99
+
+    class FakeEvent:
+        window = FakeWindow()
+
+        def __init__(self, event_type, detail):
+            self.type = event_type
+            self.detail = detail
+
+    keysyms = {
+        1: core.XK.string_to_keysym("Alt_L"),
+        2: core.XK.string_to_keysym("1"),
+        3: core.XK.string_to_keysym("2"),
+    }
+
+    class FakeDisplay:
+        def __init__(self):
+            self.events = [
+                FakeEvent(core.X.KeyPress, 1),
+                FakeEvent(core.X.KeyPress, 2),
+                FakeEvent(core.X.KeyPress, 3),
+                FakeEvent(core.X.KeyRelease, 1),
+            ]
+
+        def pending_events(self):
+            return len(self.events)
+
+        def next_event(self):
+            return self.events.pop(0)
+
+        def keycode_to_keysym(self, keycode, _index):
+            return keysyms[keycode]
+
+    host = core.X11WindowHost.__new__(core.X11WindowHost)
+    host.display = FakeDisplay()
+    host.event_tiles = {99: "1:0"}
+    host.number_tiles = {12: "2:4"}
+    host.fullscreen_keys = set()
+    host.last_click = None
+    host.last_top_hint = {}
+    host.alt_active = False
+    host.alt_digits = ""
+    host.hints = {}
+    host.hint_windows = {}
+    toggled = []
+    host.toggle_fullscreen = lambda key: toggled.append(key) or True
+
+    assert host.process_events() == [("2:4", True)]
+    assert toggled == ["2:4"]
+
+
+def test_mouse_movement_focuses_tile_and_requests_localized_hint():
+    class FakeWindow:
+        id = 77
+
+        def __init__(self):
+            self.focused = False
+
+        def set_input_focus(self, *_args):
+            self.focused = True
+
+    input_window = FakeWindow()
+
+    class FakeEvent:
+        type = core.X.MotionNotify
+        time = 20000
+        window = input_window
+
+    class FakeDisplay:
+        def __init__(self):
+            self.events = [FakeEvent()]
+
+        def pending_events(self):
+            return len(self.events)
+
+        def next_event(self):
+            return self.events.pop(0)
+
+    host = core.X11WindowHost.__new__(core.X11WindowHost)
+    host.display = FakeDisplay()
+    host.event_tiles = {77: "3:1"}
+    host.tiles = {"3:1": {"input_window": input_window}}
+    host.number_tiles = {}
+    host.fullscreen_keys = set()
+    host.last_click = None
+    host.last_top_hint = {}
+    host.alt_active = False
+    host.alt_digits = ""
+    host.hints = {}
+    host.hint_windows = {}
+
+    assert host.process_events() == [("3:1", None)]
+    assert input_window.focused
+    assert host.last_top_hint == {"3": 20000}
 
 
 def test_zoneminder_boolean_values():

@@ -713,6 +713,7 @@ class StreamSpec:
     label: str = "unbekannt"
     geometry: tuple[int, int, int, int] | None = None
     display_geometry: tuple[int, int, int, int] | None = None
+    display_number: int = 0
     stream_key: str = "unbekannt"
     decode_strategy: str = "auto"
 
@@ -735,6 +736,7 @@ class Player:
     codec: str = "unknown"
     stream_key: str = "unbekannt"
     decode_strategy: str = "auto"
+    display_number: int = 0
     last_playback_time: float | None = None
     last_progress_at: float | None = None
     failure_reason: str | None = None
@@ -750,15 +752,22 @@ class X11WindowHost:
         self.root = self.screen.root
         self.tiles: dict[str, dict[str, Any]] = {}
         self.surface_tiles: dict[int, str] = {}
+        self.event_tiles: dict[int, str] = {}
+        self.number_tiles: dict[int, str] = {}
         self.fullscreen_keys: set[str] = set()
         self.last_click: tuple[str, int] | None = None
         self.last_top_hint: dict[str, int] = {}
+        self.alt_active = False
+        self.alt_digits = ""
+        self.hints: dict[str, dict[str, Any]] = {}
+        self.hint_windows: dict[int, str] = {}
 
     def _tile(
         self,
         key: str,
         geometry: tuple[int, int, int, int],
         display_geometry: tuple[int, int, int, int] | None = None,
+        display_number: int = 0,
     ) -> dict[str, Any]:
         x, y, width, height = geometry
         tile = self.tiles.get(key)
@@ -771,12 +780,41 @@ class X11WindowHost:
             )
             window.set_wm_name(f"ZMWall Tile {key}")
             window.map()
+            number_window = window.create_window(
+                6, 6, 28, 20, 0, self.screen.root_depth,
+                X.InputOutput, X.CopyFromParent,
+                background_pixel=self.screen.black_pixel,
+                override_redirect=1, event_mask=X.ExposureMask,
+            )
+            number_gc = number_window.create_gc(
+                foreground=self.screen.white_pixel,
+                background=self.screen.black_pixel,
+            )
+            input_window = window.create_window(
+                0, 0, width, height, 0, 0,
+                X.InputOnly, X.CopyFromParent,
+                override_redirect=1,
+                event_mask=(
+                    X.ButtonPressMask | X.PointerMotionMask
+                    | X.KeyPressMask | X.KeyReleaseMask
+                ),
+            )
+            number_window.map()
+            input_window.map()
             tile = {
                 "window": window, "geometry": geometry,
                 "display_geometry": display_geometry or geometry, "surfaces": set(),
+                "number": display_number, "number_window": number_window,
+                "number_gc": number_gc, "input_window": input_window,
             }
             self.tiles[key] = tile
+            self.event_tiles[int(input_window.id)] = key
+            self.event_tiles[int(number_window.id)] = key
+            if display_number:
+                self.number_tiles[display_number] = key
+            self._raise_controls(tile)
             self.display.sync()
+            self._draw_number(tile)
         else:
             display_changed = display_geometry is not None and tile["display_geometry"] != display_geometry
             if display_geometry is not None:
@@ -790,17 +828,41 @@ class X11WindowHost:
                     tile["window"].configure(x=x, y=y, width=width, height=height)
                 for surface in tuple(tile["surfaces"]):
                     surface.configure(x=0, y=0, width=width, height=height)
+                tile["input_window"].configure(x=0, y=0, width=width, height=height)
                 self.display.sync()
+            if display_number and tile["number"] != display_number:
+                self.number_tiles.pop(int(tile["number"]), None)
+                tile["number"] = display_number
+                self.number_tiles[display_number] = key
+                self._draw_number(tile)
         return tile
+
+    def _raise_controls(self, tile: dict[str, Any]) -> None:
+        tile["number_window"].configure(stack_mode=X.Above)
+        tile["input_window"].configure(stack_mode=X.Above)
+
+    @staticmethod
+    def _safe_x_text(value: str) -> str:
+        return value.encode("latin-1", "replace").decode("latin-1")
+
+    def _draw_number(self, tile: dict[str, Any]) -> None:
+        try:
+            tile["number_window"].clear_area()
+            tile["number_window"].draw_text(
+                tile["number_gc"], 7, 15, self._safe_x_text(str(tile["number"])),
+            )
+        except (OSError, xerror.XError):
+            pass
 
     def create_surface(
         self,
         key: str,
         geometry: tuple[int, int, int, int],
         display_geometry: tuple[int, int, int, int] | None = None,
+        display_number: int = 0,
         below: Any | None = None,
     ) -> Any:
-        tile = self._tile(key, geometry, display_geometry)
+        tile = self._tile(key, geometry, display_geometry, display_number)
         effective_geometry = tile["display_geometry"] if key in self.fullscreen_keys else geometry
         _, _, width, height = effective_geometry
         surface = tile["window"].create_window(
@@ -808,18 +870,21 @@ class X11WindowHost:
             X.InputOutput, X.CopyFromParent,
             background_pixel=self.screen.black_pixel,
             override_redirect=1,
-            event_mask=X.ButtonPressMask | X.KeyPressMask | X.PointerMotionMask,
         )
         if below is not None:
             surface.configure(sibling=below, stack_mode=X.Below)
         surface.map()
         tile["surfaces"].add(surface)
         self.surface_tiles[int(surface.id)] = key
+        self._raise_controls(tile)
         self.display.sync()
         return surface
 
     def raise_surface(self, surface: Any) -> None:
         surface.configure(stack_mode=X.Above)
+        key = self.surface_tiles.get(int(surface.id))
+        if key in self.tiles:
+            self._raise_controls(self.tiles[key])
         self.display.sync()
 
     def destroy_surface(self, surface: Any) -> None:
@@ -850,50 +915,152 @@ class X11WindowHost:
         tile["window"].configure(x=x, y=y, width=width, height=height, stack_mode=X.Above)
         for surface in tuple(tile["surfaces"]):
             surface.configure(x=0, y=0, width=width, height=height)
+        tile["input_window"].configure(x=0, y=0, width=width, height=height)
+        self._raise_controls(tile)
         self.display.sync()
         return key in self.fullscreen_keys
 
+    def _draw_hint(self, screen_id: str) -> None:
+        hint = self.hints.get(screen_id)
+        if hint is None:
+            return
+        try:
+            hint["window"].clear_area()
+            hint["window"].draw_text(
+                hint["gc"], 12, 20, self._safe_x_text(hint["text"]),
+            )
+        except (OSError, xerror.XError):
+            pass
+
+    def _hide_expired_hints(self) -> None:
+        now = time.monotonic()
+        for hint in self.hints.values():
+            if hint["visible"] and now >= hint["until"]:
+                try:
+                    hint["window"].unmap()
+                    hint["visible"] = False
+                except (OSError, xerror.XError):
+                    pass
+
+    def show_hint(self, key: str, text: str, duration_ms: int) -> None:
+        """Show a short translated instruction independently of mpv's OSD."""
+        tile = self.tiles.get(key)
+        if tile is None:
+            return
+        screen_id = key.split(":", 1)[0]
+        x, y, display_width, _ = tile["display_geometry"]
+        width = min(max(220, len(text) * 8 + 24), max(1, display_width - 16))
+        geometry = (x + max(8, (display_width - width) // 2), y + 8, width, 30)
+        hint = self.hints.get(screen_id)
+        if hint is None:
+            window = self.root.create_window(
+                *geometry, 0, self.screen.root_depth,
+                X.InputOutput, X.CopyFromParent,
+                background_pixel=self.screen.black_pixel,
+                override_redirect=1, event_mask=X.ExposureMask,
+            )
+            gc = window.create_gc(
+                foreground=self.screen.white_pixel,
+                background=self.screen.black_pixel,
+            )
+            hint = {"window": window, "gc": gc}
+            self.hints[screen_id] = hint
+            self.hint_windows[int(window.id)] = screen_id
+        elif hint.get("geometry") != geometry:
+            hint["window"].configure(
+                x=geometry[0], y=geometry[1], width=geometry[2], height=geometry[3],
+            )
+        hint.update({
+            "text": text, "geometry": geometry,
+            "until": time.monotonic() + duration_ms / 1000, "visible": True,
+        })
+        hint["window"].map()
+        hint["window"].configure(stack_mode=X.Above)
+        self.display.sync()
+        self._draw_hint(screen_id)
+
+    def _event_digit(self, event: Any) -> str | None:
+        keysym = self.display.keycode_to_keysym(int(getattr(event, "detail", 0)), 0)
+        name = XK.keysym_to_string(keysym) or ""
+        if len(name) == 1 and name.isdigit():
+            return name
+        if name.startswith("KP_") and name[3:].isdigit() and len(name[3:]) == 1:
+            return name[3:]
+        return None
+
     def process_events(self) -> list[tuple[str, bool | None]]:
-        """Handle double-click fullscreen and Escape without involving Openbox."""
+        """Handle tile mouse and keyboard input on the mpv-independent overlay."""
         actions: list[tuple[str, bool | None]] = []
+        self._hide_expired_hints()
         while self.display.pending_events():
             event = self.display.next_event()
             window_id = int(getattr(getattr(event, "window", None), "id", 0))
-            key = self.surface_tiles.get(window_id)
+            key = self.event_tiles.get(window_id)
+            if event.type == X.Expose:
+                if window_id in self.hint_windows:
+                    self._draw_hint(self.hint_windows[window_id])
+                elif key and (tile := self.tiles.get(key)) is not None:
+                    self._draw_number(tile)
+                continue
             if event.type == X.ButtonPress and getattr(event, "detail", 0) == 1 and key:
                 timestamp = int(getattr(event, "time", 0))
                 previous = self.last_click
                 self.last_click = (key, timestamp)
+                try:
+                    self.tiles[key]["input_window"].set_input_focus(
+                        X.RevertToParent, X.CurrentTime,
+                    )
+                except (KeyError, OSError, xerror.XError):
+                    pass
                 if previous and previous[0] == key and 0 <= timestamp - previous[1] <= DOUBLE_CLICK_MILLISECONDS:
                     self.last_click = None
-                    try:
-                        event.window.set_input_focus(X.RevertToParent, X.CurrentTime)
-                    except (OSError, xerror.XError):
-                        pass
                     actions.append((key, self.toggle_fullscreen(key)))
-            elif event.type == X.KeyPress and key in self.fullscreen_keys:
+            elif event.type == X.KeyPress and key:
                 keysym = self.display.keycode_to_keysym(int(getattr(event, "detail", 0)), 0)
-                if keysym == XK.string_to_keysym("Escape"):
+                if keysym == XK.string_to_keysym("Escape") and key in self.fullscreen_keys:
                     actions.append((key, self.toggle_fullscreen(key)))
+                elif keysym in {
+                    XK.string_to_keysym("Alt_L"), XK.string_to_keysym("Alt_R"),
+                }:
+                    self.alt_active = True
+                    self.alt_digits = ""
+                elif self.alt_active and len(self.alt_digits) < 3:
+                    digit = self._event_digit(event)
+                    if digit is not None:
+                        self.alt_digits += digit
+            elif event.type == X.KeyRelease and key:
+                keysym = self.display.keycode_to_keysym(int(getattr(event, "detail", 0)), 0)
+                if keysym in {
+                    XK.string_to_keysym("Alt_L"), XK.string_to_keysym("Alt_R"),
+                } and self.alt_active:
+                    target = self.number_tiles.get(int(self.alt_digits)) if self.alt_digits else None
+                    self.alt_active = False
+                    self.alt_digits = ""
+                    if target:
+                        actions.append((target, self.toggle_fullscreen(target)))
             elif event.type == X.MotionNotify and key:
-                tile = self.tiles.get(key)
-                at_physical_top = bool(tile) and (
-                    key in self.fullscreen_keys
-                    or tile["geometry"][1] == tile["display_geometry"][1]
-                )
-                if at_physical_top and int(getattr(event, "event_y", 9999)) <= 12:
-                    screen_id = key.split(":", 1)[0]
-                    timestamp = int(getattr(event, "time", 0))
-                    last_shown = self.last_top_hint.get(screen_id, -15000)
-                    if timestamp - last_shown >= 15000:
-                        self.last_top_hint[screen_id] = timestamp
-                        actions.append((key, None))
+                try:
+                    self.tiles[key]["input_window"].set_input_focus(
+                        X.RevertToParent, X.CurrentTime,
+                    )
+                except (KeyError, OSError, xerror.XError):
+                    pass
+                screen_id = key.split(":", 1)[0]
+                timestamp = int(getattr(event, "time", 0))
+                last_shown = self.last_top_hint.get(screen_id, -15000)
+                if timestamp - last_shown >= 15000:
+                    self.last_top_hint[screen_id] = timestamp
+                    actions.append((key, None))
+        self._hide_expired_hints()
         return actions
 
     def retain_tiles(self, keys: set[str]) -> None:
         for key in set(self.tiles) - keys:
             tile = self.tiles.pop(key)
             self.fullscreen_keys.discard(key)
+            self.number_tiles.pop(int(tile["number"]), None)
+            self.event_tiles.pop(int(tile["input_window"].id), None)
+            self.event_tiles.pop(int(tile["number_window"].id), None)
             for surface in tile["surfaces"]:
                 self.surface_tiles.pop(int(surface.id), None)
             try:
@@ -910,8 +1077,17 @@ class X11WindowHost:
                 pass
         self.tiles.clear()
         self.surface_tiles.clear()
+        self.event_tiles.clear()
+        self.number_tiles.clear()
         self.fullscreen_keys.clear()
         self.last_top_hint.clear()
+        for hint in self.hints.values():
+            try:
+                hint["window"].destroy()
+            except xerror.BadWindow:
+                pass
+        self.hints.clear()
+        self.hint_windows.clear()
         self.display.flush()
         self.display.close()
 
@@ -946,12 +1122,17 @@ class PlayerManager:
         self.reload_event.set()
 
     def _show_player_text(self, player: Player | None, key: str, duration: int) -> None:
-        if player is None or player.process.poll() is not None:
+        if (
+            player is None or player.process.poll() is not None
+            or self.window_host is None
+        ):
             return
-        self._ipc(player, ["set_property", "osd-align-x", "center"])
-        self._ipc(player, ["set_property", "osd-align-y", "top"])
-        self._ipc(player, ["set_property", "osd-margin-y", 12])
-        self._ipc(player, ["show-text", translate(self.language, key), duration])
+        try:
+            self.window_host.show_hint(
+                player.tile_key, translate(self.language, key), duration,
+            )
+        except (OSError, xerror.XError):
+            pass
 
     def _show_interaction_hint(self, player: Player) -> None:
         screen_id, _, position = player.tile_key.partition(":")
@@ -1344,7 +1525,10 @@ class PlayerManager:
         resolution_cache: dict[str, str | None] = {}
 
         with connect(self.db_path) as db:
-            screens = db.execute("SELECT * FROM screens WHERE enabled=1").fetchall()
+            screens = db.execute(
+                "SELECT * FROM screens WHERE enabled=1 ORDER BY output_name"
+            ).fetchall()
+            next_display_number = 1
             for screen in screens:
                 output = outputs.get(screen["output_name"])
                 if not output:
@@ -1375,6 +1559,7 @@ class PlayerManager:
                     local_x = x - int(output["x"])
                     local_y = y - int(output["y"])
                     geometry = format_geometry(width, height, local_x, local_y)
+                    display_number = next_display_number + position
 
                     def make_spec(camera: sqlite3.Row) -> StreamSpec:
                         url = render_rtsp(camera, camera, resolution_cache)
@@ -1382,7 +1567,8 @@ class PlayerManager:
                         decode_strategy = self.hwdec_preferences.get(stream_key, "auto")
                         signature = (
                             f"{url}|{screen['output_name']}|"
-                            f"{format_geometry(width, height, x, y)}|hwdec={decode_strategy}"
+                            f"{format_geometry(width, height, x, y)}|"
+                            f"number={display_number}|hwdec={decode_strategy}"
                         )
                         command = [
                             "mpv", "--no-config", "--no-audio", "--no-border", "--ontop",
@@ -1392,8 +1578,6 @@ class PlayerManager:
                             f"--screen-name={screen['output_name']}",
                             "--keepaspect=no", "--keepaspect-window=no", "--panscan=0",
                             "--video-zoom=0", "--no-osc", "--cursor-autohide=always",
-                            "--osd-font-size=18", "--osd-scale-by-window=no",
-                            "--osd-color=#DDFFFFFF", "--osd-outline-color=#B0000000",
                             "--profile=low-latency", *hwdec_arguments(decode_strategy),
                             "--demuxer-lavf-o=rtsp_transport=tcp,rw_timeout=15000000",
                             f"--geometry={geometry}",
@@ -1408,6 +1592,7 @@ class PlayerManager:
                                 int(output["width"]), int(output["height"]),
                             ),
                             stream_key=stream_key, decode_strategy=decode_strategy,
+                            display_number=display_number,
                         )
 
                     now = time.monotonic()
@@ -1439,6 +1624,7 @@ class PlayerManager:
                     )
                     upcoming = make_spec(cameras[next_index]) if should_preload else None
                     desired[tile_key] = (current, upcoming)
+                next_display_number += int(screen["rows"]) * int(screen["cols"])
         return desired
 
     def _launch(self, key: str, spec: StreamSpec, hidden: bool) -> Player | None:
@@ -1457,6 +1643,7 @@ class PlayerManager:
             try:
                 surface = host.create_surface(
                     key, spec.geometry, spec.display_geometry,
+                    spec.display_number,
                     below=active_surface if hidden else None,
                 )
                 command = [
@@ -1488,6 +1675,7 @@ class PlayerManager:
                 surface=surface,
                 stream_key=spec.stream_key,
                 decode_strategy=spec.decode_strategy,
+                display_number=spec.display_number,
             )
             player.output_thread = threading.Thread(
                 target=self._capture_player_output, args=(player,), daemon=True,
