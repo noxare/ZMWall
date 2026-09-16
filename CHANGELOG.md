@@ -8,6 +8,13 @@ Dieses Changelog dokumentiert die Entwicklung von ZM Wall mit Funktionen, Betrie
 
 - Noch keine Änderungen.
 
+## 0.3.0-beta.20 – 2026-09-16
+
+- Die Decoderwahl besitzt nun ein Rockchip-Backend: Auf erkannter Rockchip-Hardware wird `rkmpp` nur dann vor dem bisherigen sicheren `auto`/`auto-copy`-Pfad verwendet, wenn die installierte mpv-Version den Decoder tatsächlich anbietet. Bestehende Intel-/AMD-Systeme behalten ihre bisherige Reihenfolge unverändert.
+- Die Oberfläche zeigt das aktive Video-Backend pro konfiguriertem Display an.
+- Bereits konfigurierte Monitoranschlüsse werden nicht mehr in **Display hinzufügen** angeboten. Nach dem Löschen stehen sie wieder zur Auswahl; doppelte Definitionen werden zusätzlich serverseitig abgewiesen.
+- Regressionstests für die bedingte Rockchip-Auswahl und die eindeutige Monitorzuordnung.
+
 ## 0.3.0-beta.19 – 2026-09-15
 
 - Die Sammeldiagnose aktualisiert den sichtbaren Streamstatus jeder Kamera unmittelbar nach deren Prüfung und nicht erst nach Abschluss aller Kameras.

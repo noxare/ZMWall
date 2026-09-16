@@ -319,6 +319,7 @@ def index():
             ).fetchall()
         ]
         screens = db.execute("SELECT * FROM screens ORDER BY output_name").fetchall()
+        configured_outputs = {str(screen["output_name"]) for screen in screens}
         assignment_rows = db.execute(
             f"""SELECT tc.screen_id,tc.position,tc.camera_key,tc.sort_order,c.name,c.server_name,
                        csc.configured_width,csc.configured_height,
@@ -335,10 +336,16 @@ def index():
             assigned_camera_keys.add(row["camera_key"])
         available_cameras = [camera for camera in selectable_cameras if camera["camera_key"] not in assigned_camera_keys]
     runtime_status = manager.runtime_status()
+    detected_outputs = detect_outputs()
+    available_outputs = [
+        output for output in detected_outputs
+        if str(output["name"]) not in configured_outputs
+    ]
     return render_template(
         "index.html", sites=sites, zm_servers=zm_servers, cameras=cameras,
         selectable_cameras=selectable_cameras, available_cameras=available_cameras,
-        screens=screens, assignments=assignments, outputs=detect_outputs(), version=__version__,
+        screens=screens, assignments=assignments, outputs=available_outputs, version=__version__,
+        all_detected_outputs_configured=bool(detected_outputs) and not available_outputs,
         update_status=localized_update_state(),
         runtime_hardware=runtime_status["hardware"],
         runtime_network=runtime_status["network"],
@@ -685,16 +692,12 @@ def save_screen():
     with connect(DB_PATH) as db:
         existing = db.execute("SELECT id FROM screens WHERE output_name=?", (output_name,)).fetchone()
         if existing:
-            screen_id = existing["id"]
-            db.execute(
-                "UPDATE screens SET rows=?,cols=?,rotation_seconds=? WHERE id=?",
-                (rows, cols, rotation_seconds, screen_id),
-            )
-        else:
-            screen_id = db.execute(
-                "INSERT INTO screens(output_name,rows,cols,rotation_seconds) VALUES(?,?,?,?)",
-                (output_name, rows, cols, rotation_seconds),
-            ).lastrowid
+            flash(t("output_already_configured"), "error")
+            return redirect(url_for("index"))
+        screen_id = db.execute(
+            "INSERT INTO screens(output_name,rows,cols,rotation_seconds) VALUES(?,?,?,?)",
+            (output_name, rows, cols, rotation_seconds),
+        ).lastrowid
         db.execute("DELETE FROM tiles WHERE screen_id=? AND position>=?", (screen_id, rows * cols))
         db.execute("DELETE FROM tile_cameras WHERE screen_id=? AND position>=?", (screen_id, rows * cols))
     manager.request_reload(reset_layout=True)

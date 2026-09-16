@@ -51,6 +51,17 @@ def detect_decode_hardware() -> dict[str, str]:
         pass
 
     gpu = "Grafikeinheit"
+    platform = "linux"
+    try:
+        compatible = Path("/proc/device-tree/compatible").read_bytes().replace(b"\x00", b" ").decode(
+            errors="replace"
+        ).lower()
+        if "rockchip" in compatible:
+            platform = "rockchip"
+            match = re.search(r"rockchip,(rk\d+)", compatible)
+            gpu = f"Rockchip {match.group(1).upper()} VPU / GPU" if match else "Rockchip VPU / GPU"
+    except OSError:
+        pass
     try:
         result = subprocess.run(
             ["lspci"], check=False, capture_output=True, text=True, timeout=2,
@@ -63,12 +74,40 @@ def detect_decode_hardware() -> dict[str, str]:
                 break
     except (OSError, subprocess.SubprocessError):
         pass
-    return {"cpu": cpu, "gpu": gpu}
+    return {"cpu": cpu, "gpu": gpu, "platform": platform}
 
 
-def detect_hwdec_strategies(hardware: dict[str, str], library_root: Path = Path("/usr/lib")) -> list[str]:
+def detect_mpv_hwdecs() -> set[str]:
+    """Return decoder API names advertised by the installed mpv build."""
+    try:
+        result = subprocess.run(
+            ["mpv", "--no-config", "--hwdec=help"],
+            check=False, capture_output=True, text=True, timeout=3,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    advertised = set()
+    for line in f"{result.stdout}\n{result.stderr}".splitlines():
+        match = re.match(r"^\s*([a-z0-9][a-z0-9_-]*)\s*$", line.lower())
+        if match:
+            advertised.add(match.group(1))
+    return advertised
+
+
+def detect_hwdec_strategies(
+    hardware: dict[str, str],
+    library_root: Path = Path("/usr/lib"),
+    available_hwdecs: set[str] | None = None,
+) -> list[str]:
     """Build a safe decoder fallback chain from drivers actually installed."""
-    strategies = ["auto", "auto-copy"]
+    if available_hwdecs is None:
+        available_hwdecs = detect_mpv_hwdecs()
+    is_rockchip = hardware.get("platform") == "rockchip" or "rockchip" in hardware.get("gpu", "").lower()
+    # Radxa/Rockchip mpv builds commonly expose rkmpp outside mpv's safe
+    # automatic whitelist. Select it explicitly only on detected Rockchip
+    # hardware and only when this exact mpv build advertises it.
+    strategies = ["rkmpp"] if is_rockchip and "rkmpp" in available_hwdecs else []
+    strategies.extend(["auto", "auto-copy"])
     is_intel = "intel" in hardware.get("gpu", "").lower()
     if is_intel:
         # Some FFmpeg builds reject H.264 Baseline before VAAPI is tried even
@@ -81,6 +120,15 @@ def detect_hwdec_strategies(hardware: dict[str, str], library_root: Path = Path(
     if is_intel and has_i965:
         strategies.extend(["vaapi-i965", "vaapi-copy-i965"])
     return strategies
+
+
+def video_backend_name(hardware: dict[str, str], strategies: list[str]) -> str:
+    """Describe the selected decoder family without changing playback policy."""
+    if "rkmpp" in strategies:
+        return "Rockchip MPP"
+    if "intel" in hardware.get("gpu", "").lower():
+        return "mpv Auto / VAAPI"
+    return "mpv Auto"
 
 
 def hwdec_option(strategy: str) -> str:
@@ -764,6 +812,9 @@ class PlayerManager:
         self.window_host_failed = False
         self.decode_hardware = detect_decode_hardware()
         self.hwdec_strategies = detect_hwdec_strategies(self.decode_hardware)
+        self.decode_hardware["backend"] = video_backend_name(
+            self.decode_hardware, self.hwdec_strategies,
+        )
         self.hwdec_preferences = self._load_hwdec_preferences()
         self.rtsp_recovery_attempted: set[str] = set()
         self.rtsp_recovery_in_progress: set[str] = set()

@@ -60,6 +60,42 @@ def test_configuration_and_diagnostics_show_cached_resolution(monkeypatch, tmp_p
     assert "In ZoneMinder übernehmen" in diagnostics_page.text
 
 
+def test_configured_output_is_hidden_until_screen_is_deleted(monkeypatch, tmp_path):
+    db_path = str(tmp_path / "outputs.db")
+    web = importlib.import_module("zmwall.app")
+    web.DB_PATH = db_path
+    init_db(db_path)
+    with connect(db_path) as db:
+        screen_id = db.execute(
+            "INSERT INTO screens(output_name,rows,cols) VALUES('HDMI-1',1,1)"
+        ).lastrowid
+
+    monkeypatch.setattr(web, "detect_outputs", lambda: [
+        {"name": "HDMI-1", "width": 1920, "height": 1080, "x": 0, "y": 0},
+        {"name": "HDMI-2", "width": 1920, "height": 1080, "x": 1920, "y": 0},
+    ])
+    monkeypatch.setattr(web.manager, "runtime_status", lambda: {
+        "hardware": {"cpu": "Test CPU", "gpu": "Test GPU", "backend": "mpv Auto"},
+        "network": {"state": "offline", "connections": []},
+        "screens": {},
+    })
+    client = web.app.test_client()
+
+    configured = client.get("/")
+    assert "<option>HDMI-1</option>" not in configured.text
+    assert "<option>HDMI-2</option>" in configured.text
+
+    duplicate = client.post("/screens", data={
+        "output_name": "HDMI-1", "rows": "2", "cols": "2", "rotation_seconds": "30",
+    }, follow_redirects=True)
+    assert "already configured" in duplicate.text
+    with connect(db_path) as db:
+        assert db.execute("SELECT COUNT(*) FROM screens WHERE output_name='HDMI-1'").fetchone()[0] == 1
+
+    deleted = client.post(f"/screens/{screen_id}/delete", follow_redirects=True)
+    assert "<option>HDMI-1</option>" in deleted.text
+
+
 def test_resolution_update_uses_only_verified_server_side_probe(monkeypatch, tmp_path):
     db_path = str(tmp_path / "resolution.db")
     web = importlib.import_module("zmwall.app")

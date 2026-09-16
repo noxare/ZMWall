@@ -432,6 +432,17 @@ def test_intel_legacy_driver_is_only_added_when_installed(tmp_path):
     ]
 
 
+def test_rockchip_backend_is_only_selected_when_mpv_advertises_it(tmp_path):
+    hardware = {"cpu": "ARM", "gpu": "Rockchip RK3588 VPU / GPU", "platform": "rockchip"}
+    assert core.detect_hwdec_strategies(hardware, tmp_path, {"rkmpp", "drm"}) == [
+        "rkmpp", "auto", "auto-copy",
+    ]
+    assert core.video_backend_name(hardware, ["rkmpp", "auto"]) == "Rockchip MPP"
+    assert core.detect_hwdec_strategies(hardware, tmp_path, {"drm"}) == [
+        "auto", "auto-copy",
+    ]
+
+
 def test_failed_copy_advances_to_installed_intel_driver(monkeypatch):
     manager = core.PlayerManager("unused.db")
     manager.hwdec_strategies = [

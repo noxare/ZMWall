@@ -100,6 +100,7 @@
                 <div class="monitor-hardware" title="{{ t('detected_hardware') }}">
                   <span><b>CPU</b> {{ runtime_hardware.cpu }}</span>
                   <span><b>GPU</b> {{ runtime_hardware.gpu }}</span>
+                  <span><b>Video</b> {{ runtime_hardware.backend }}</span>
                 </div>
                 <div class="resolution-legend" aria-label="{{ t('resolution_legend') }}">
                   <span class="match">{{ t('resolution_match') }}</span>
@@ -150,15 +151,15 @@
 
     <details class="panel"><summary>{{ t('add_display') }}</summary>
       <form method="post" action="{{ url_for('save_screen') }}" class="form-grid">
-        <label>{{ t('output') }}<select name="output_name" required>{% for output in outputs %}<option>{{ output.name }}</option>{% endfor %}</select></label>
+        <label>{{ t('output') }}<select name="output_name" required {% if not outputs %}disabled{% endif %}>{% for output in outputs %}<option>{{ output.name }}</option>{% endfor %}</select></label>
         <label>{{ t('rows') }}<input type="number" name="rows" min="1" max="8" value="2"></label>
         <label>{{ t('columns') }}<input type="number" name="cols" min="1" max="8" value="2"></label>
         <label>{{ t('rotation_interval') }}
           <span class="input-suffix"><input type="number" name="rotation_seconds" min="5" max="86400" value="30"><span>{{ t('seconds_short') }}</span></span>
         </label>
-        <button>{{ t('add') }}</button>
+        <button {% if not outputs %}disabled{% endif %}>{{ t('add') }}</button>
       </form>
-      {% if not outputs %}<p class="warning">{{ t('no_outputs') }}</p>{% endif %}
+      {% if not outputs %}<p class="warning">{{ t('all_outputs_configured') if all_detected_outputs_configured else t('no_outputs') }}</p>{% endif %}
     </details>
   </section>
 

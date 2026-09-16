@@ -8,6 +8,13 @@ This changelog documents ZM Wall's features, operational flows, technical decisi
 
 - No changes yet.
 
+## 0.3.0-beta.20 – 2026-09-16
+
+- Decoder selection now has a Rockchip backend. On detected Rockchip hardware, `rkmpp` is placed before the existing safe `auto`/`auto-copy` path only when the installed mpv build actually advertises that decoder. Existing Intel and AMD systems retain their previous ordering.
+- The active video backend is shown for every configured display.
+- Configured monitor connectors are no longer offered under **Add display**. Deleting a display makes its connector selectable again, while duplicate definitions are also rejected server-side.
+- Regression coverage for conditional Rockchip selection and unique monitor assignment.
+
 ## 0.3.0-beta.19 – 2026-09-15
 
 - Batch diagnostics now update each camera's visible stream status immediately after its probe instead of waiting for all cameras to finish.
