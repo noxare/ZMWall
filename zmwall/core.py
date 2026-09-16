@@ -842,8 +842,12 @@ class X11WindowHost:
         tile["input_window"].configure(stack_mode=X.Above)
 
     @staticmethod
-    def _safe_x_text(value: str) -> str:
-        return value.encode("latin-1", "replace").decode("latin-1")
+    def _safe_x_text(value: str) -> bytes:
+        # PolyText8 is an 8-bit X11 protocol request.  python-xlib encodes
+        # ``str`` values as UTF-8, which X11 then displays as mojibake (for
+        # example ``ZurÃ¼ck``).  Supplying bytes keeps the intended Latin-1
+        # representation for the German UI text.
+        return value.encode("latin-1", "replace")
 
     def _draw_number(self, tile: dict[str, Any]) -> None:
         try:

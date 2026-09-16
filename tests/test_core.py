@@ -58,6 +58,16 @@ def test_grid_cells_cover_complete_output_without_overlap():
     assert cells[3][1] + cells[3][3] == 1081
 
 
+def test_x11_overlay_text_uses_single_byte_latin1_for_umlauts():
+    text = "Zurück zum Grid · Feld wählen"
+
+    encoded = core.X11WindowHost._safe_x_text(text)
+
+    assert encoded == text.encode("latin-1")
+    assert encoded.decode("latin-1") == text
+    assert b"\xc3" not in encoded
+
+
 def test_geometry_uses_valid_signs_for_monitors_left_of_primary():
     assert format_geometry(640, 540, -1920, 0) == "640x540-1920+0"
 

@@ -8,6 +8,11 @@ This changelog documents ZM Wall's features, operational flows, technical decisi
 
 - No changes yet.
 
+## 0.3.0-beta.24 – 2026-09-16
+
+- German umlauts and special characters are now passed correctly as 8-bit text to the new X11 interaction hints instead of being displayed as visible UTF-8 byte sequences.
+- A regression test covers the hint-window text encoding. A total of 72 automated tests.
+
 ## 0.3.0-beta.23 – 2026-09-16
 
 - A dedicated invisible X11 input layer now sits reliably above the mpv surfaces. Mouse movement and double-clicks therefore reach ZM Wall regardless of how mpv manages its render window.

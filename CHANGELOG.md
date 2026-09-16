@@ -8,6 +8,11 @@ Dieses Changelog dokumentiert die Entwicklung von ZM Wall mit Funktionen, Betrie
 
 - Noch keine Änderungen.
 
+## 0.3.0-beta.24 – 2026-09-16
+
+- Deutsche Umlaute und Sonderzeichen werden in den neuen X11-Bedienhinweisen korrekt als 8-Bit-Text übergeben und nicht mehr als sichtbare UTF-8-Bytefolgen dargestellt.
+- Ein Regressionstest prüft die Zeichenkodierung der Hinweisfenster. Insgesamt 72 automatisierte Tests.
+
 ## 0.3.0-beta.23 – 2026-09-16
 
 - Ein eigener unsichtbarer X11-Eingabe-Layer liegt jetzt zuverlässig über den mpv-Flächen. Dadurch erreichen Mausbewegungen und Doppelklicks ZM Wall unabhängig davon, wie mpv sein Renderfenster verwaltet.
