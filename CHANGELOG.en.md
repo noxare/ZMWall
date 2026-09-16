@@ -8,6 +8,13 @@ This changelog documents ZM Wall's features, operational flows, technical decisi
 
 - No changes yet.
 
+## 0.3.0-beta.21 – 2026-09-16
+
+- Adding a display now offers compact visual grid presets for `2×2`, `3×2`, `3×3`, `4×3`, and `4×4`, plus a custom size.
+- Existing displays show only a subtle grid control. The symbolic preset picker opens on demand, while numeric fields appear exclusively under **Custom**.
+- The visible configuration responds immediately to a new grid size but remains unsaved until **Apply all layouts** is selected.
+- When shrinking a grid would remove occupied positions, ZM Wall warns first and returns their cameras to the available camera list after confirmation.
+
 ## 0.3.0-beta.20 – 2026-09-16
 
 - Decoder selection now has a Rockchip backend. On detected Rockchip hardware, `rkmpp` is placed before the existing safe `auto`/`auto-copy` path only when the installed mpv build actually advertises that decoder. Existing Intel and AMD systems retain their previous ordering.

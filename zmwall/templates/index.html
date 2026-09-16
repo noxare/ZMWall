@@ -19,7 +19,9 @@
       data-i18n-hidden-preload="{{ t('hidden_preload', resource='{resource}') }}"
       data-i18n-network-lan="{{ t('network_lan') }}" data-i18n-network-wifi="{{ t('network_wifi') }}"
       data-i18n-network-offline="{{ t('network_offline') }}"
-      data-i18n-all-assigned="{{ t('all_assigned') }}">
+      data-i18n-all-assigned="{{ t('all_assigned') }}"
+      data-i18n-drop-camera="{{ t('drop_camera') }}"
+      data-i18n-grid-shrink-confirm="{{ t('grid_shrink_confirm') }}">
 <header>
   <div class="brand"><h1>ZM Wall</h1><p>{{ t('wall_subtitle') }} · {{ version }}</p><a class="diagnostics-link" href="{{ url_for('diagnostics') }}">{{ t('diagnostics_open') }}</a></div>
   <div class="header-actions">
@@ -93,9 +95,9 @@
       <form id="layout-form" method="post" action="{{ url_for('save_layouts') }}" class="screen-layouts">
         {% for screen in screens %}
           <input type="hidden" name="screen_id" value="{{ screen.id }}">
-          <article class="card screen-card">
+          <article class="card screen-card" data-screen-id="{{ screen.id }}">
             <div class="card-head">
-              <div><h3>{{ screen.output_name }}</h3><small>{{ screen.rows }} × {{ screen.cols }}</small></div>
+              <div><h3>{{ screen.output_name }}</h3><small class="screen-grid-summary">{{ screen.cols }} × {{ screen.rows }}</small></div>
               <div class="monitor-meta">
                 <div class="monitor-hardware" title="{{ t('detected_hardware') }}">
                   <span><b>CPU</b> {{ runtime_hardware.cpu }}</span>
@@ -112,13 +114,40 @@
                       formnovalidate onclick='return confirm({{ t("remove_display_confirm")|tojson }})'>{{ t('remove_display') }}</button>
             </div>
             <div class="screen-settings">
-              <label>{{ t('rows') }}<input type="number" name="rows_{{ screen.id }}" min="1" max="8" value="{{ screen.rows }}"></label>
-              <label>{{ t('columns') }}<input type="number" name="cols_{{ screen.id }}" min="1" max="8" value="{{ screen.cols }}"></label>
+              <div class="grid-picker compact-grid-picker">
+                <span class="setting-label">{{ t('grid') }}</span>
+                <button type="button" class="grid-picker-trigger secondary" aria-expanded="false">
+                  <span class="grid-symbol" style="--symbol-cols:{{ screen.cols }};--symbol-rows:{{ screen.rows }}" aria-hidden="true">
+                    {% for _ in range(screen.rows * screen.cols) %}<i></i>{% endfor %}
+                  </span>
+                  <span class="grid-picker-label">{{ screen.cols }} × {{ screen.rows }}</span><span class="grid-picker-chevron">⌄</span>
+                </button>
+                <div class="grid-picker-popover" hidden>
+                  <div class="grid-preset-list">
+                    {% for cols, rows in [(2,2), (3,2), (3,3), (4,3), (4,4)] %}
+                      <button type="button" class="grid-preset secondary" data-cols="{{ cols }}" data-rows="{{ rows }}"
+                              aria-pressed="{{ 'true' if screen.cols == cols and screen.rows == rows else 'false' }}">
+                        <span class="grid-symbol" style="--symbol-cols:{{ cols }};--symbol-rows:{{ rows }}" aria-hidden="true">
+                          {% for _ in range(cols * rows) %}<i></i>{% endfor %}
+                        </span><span>{{ cols }} × {{ rows }}</span>
+                      </button>
+                    {% endfor %}
+                  </div>
+                  <button type="button" class="grid-custom-toggle link"
+                          aria-pressed="{{ 'false' if (screen.cols, screen.rows) in [(2,2), (3,2), (3,3), (4,3), (4,4)] else 'true' }}">{{ t('custom_grid') }} …</button>
+                  <div class="grid-custom-fields" hidden>
+                    <label>{{ t('columns') }}<input class="grid-custom-cols" type="number" min="1" max="8" value="{{ screen.cols }}"></label>
+                    <label>{{ t('rows') }}<input class="grid-custom-rows" type="number" min="1" max="8" value="{{ screen.rows }}"></label>
+                  </div>
+                </div>
+                <input type="hidden" class="grid-rows" name="rows_{{ screen.id }}" value="{{ screen.rows }}">
+                <input type="hidden" class="grid-cols" name="cols_{{ screen.id }}" value="{{ screen.cols }}">
+              </div>
               <label>{{ t('rotation_interval') }}
                 <span class="input-suffix"><input type="number" name="rotation_seconds_{{ screen.id }}" min="5" max="86400" value="{{ screen.rotation_seconds }}"><span>{{ t('seconds_short') }}</span></span>
               </label>
             </div>
-            <div class="grid" style="--cols:{{ screen.cols }}">
+            <div class="grid" data-screen-grid style="--cols:{{ screen.cols }}">
               {% for position in range(screen.rows * screen.cols) %}
                 {% set tile_key = screen.id|string + ':' + position|string %}
                 <div class="tile dropzone" data-dropzone="tile">
@@ -150,10 +179,28 @@
     </div>
 
     <details class="panel"><summary>{{ t('add_display') }}</summary>
-      <form method="post" action="{{ url_for('save_screen') }}" class="form-grid">
+      <form method="post" action="{{ url_for('save_screen') }}" class="form-grid add-screen-form">
         <label>{{ t('output') }}<select name="output_name" required {% if not outputs %}disabled{% endif %}>{% for output in outputs %}<option>{{ output.name }}</option>{% endfor %}</select></label>
-        <label>{{ t('rows') }}<input type="number" name="rows" min="1" max="8" value="2"></label>
-        <label>{{ t('columns') }}<input type="number" name="cols" min="1" max="8" value="2"></label>
+        <div class="grid-picker add-grid-picker wide">
+          <span class="setting-label">{{ t('grid') }}</span>
+          <div class="grid-preset-list">
+            {% for cols, rows in [(2,2), (3,2), (3,3), (4,3), (4,4)] %}
+              <button type="button" class="grid-preset secondary" data-cols="{{ cols }}" data-rows="{{ rows }}"
+                      aria-pressed="{{ 'true' if cols == 2 and rows == 2 else 'false' }}">
+                <span class="grid-symbol" style="--symbol-cols:{{ cols }};--symbol-rows:{{ rows }}" aria-hidden="true">
+                  {% for _ in range(cols * rows) %}<i></i>{% endfor %}
+                </span><span>{{ cols }} × {{ rows }}</span>
+              </button>
+            {% endfor %}
+            <button type="button" class="grid-custom-toggle secondary" aria-pressed="false">{{ t('custom_grid') }}</button>
+          </div>
+          <div class="grid-custom-fields" hidden>
+            <label>{{ t('columns') }}<input class="grid-custom-cols" type="number" min="1" max="8" value="2"></label>
+            <label>{{ t('rows') }}<input class="grid-custom-rows" type="number" min="1" max="8" value="2"></label>
+          </div>
+          <input type="hidden" class="grid-rows" name="rows" value="2">
+          <input type="hidden" class="grid-cols" name="cols" value="2">
+        </div>
         <label>{{ t('rotation_interval') }}
           <span class="input-suffix"><input type="number" name="rotation_seconds" min="5" max="86400" value="30"><span>{{ t('seconds_short') }}</span></span>
         </label>

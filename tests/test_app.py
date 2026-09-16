@@ -50,6 +50,12 @@ def test_configuration_and_diagnostics_show_cached_resolution(monkeypatch, tmp_p
     assert configuration.status_code == 200
     assert "3840×2160" in configuration.text
     assert "GPU-Grenze" not in configuration.text
+    assert 'class="grid-picker compact-grid-picker"' in configuration.text
+    assert 'data-cols="4" data-rows="4"' in configuration.text
+    assert 'data-cols="5" data-rows="4"' not in configuration.text
+    assert 'name="rows_' in configuration.text
+    assert 'name="cols_' in configuration.text
+    assert 'class="grid-picker add-grid-picker wide"' in configuration.text
 
     diagnostics_page = client.get("/diagnostics", headers=headers)
     assert diagnostics_page.status_code == 200
